@@ -1,118 +1,73 @@
-# 低精度 FFT — 实施计划 v2
+# 低精度 FFT — 实施计划 v3
 
 > **团队**: 韩志麟（统筹决策） + OpenClaw（研究/文档/协调） + Claude Code（编码/实验）  
-> **日期**: 2026-06-02  
-> **目标**: FP16/FP8 低精度 FFT 多架构适配 → PyTorch 社区贡献
+> **更新**: 2026-06-02（基于 cuFFT 13.3 调研结论）  
+> **目标**: 将低精度 FFT 引入 PyTorch → FP16/BF16（cuFFT封装） + FP8（自研） → 社区贡献
 
 ---
 
 ## 角色分工
 
-| 角色 | 职责 | 工具 |
-|---|---|---|
-| **韩志麟** | 方向决策、算法方案确认、代码审查、导师对接 | 笔记本 + Claude Code |
-| **OpenClaw** | 文献搜索分析、技术文档、任务拆解、进度追踪 | N2920 + pipeline |
-| **Claude Code** | 编码实现、CUDA kernel、PyTorch 封装、实验 | 笔记本 GPU |
-
-**协作流**: 韩志麟决策 → OpenClaw 拆解委派 → CC 实现 → 韩志麟审查 → 迭代
-
----
-
-## 阶段一：方案定稿（6/2 - 6/8）
-
-### 1.1 文献补充
-
-> 当前只有 2505.00582 一篇。需要至少 10 篇覆盖以下领域。
-
-| 领域 | 关键词 | 责任人 |
-|---|---|---|
-| 低精度 FFT 理论 | "low precision FFT" "mixed precision FFT" | OpenClaw |
-| 混合精度训练 | "mixed precision training" "FP16 training" "autocast" | OpenClaw |
-| CUDA FFT 优化 | "CUDA FFT optimization" "cufft fp16" | OpenClaw |
-| PyTorch 算子开发 | "PyTorch custom op" "torch.autograd.Function" | OpenClaw |
-| LLM PEFT + 频域 | "frequency domain fine-tuning" "Fourier PEFT" | OpenClaw |
-
-产出：每篇 → `paper-notes/<id>.md`（REF-NOTE 格式），由 OpenClaw 搜索 + 初稿，CC 补充技术细节。
-
-### 1.2 技术方案升级
-
-当前 DESIGN.md 只有一句话。需要升级为可执行方案：
-
-| 章节 | 内容 | 责任人 |
-|---|---|---|
-| 算法设计 | FP16/FP8 FFT 的误差模型、动态缩放策略 | OpenClaw 起草 → 韩志麟确认 |
-| CUDA 内核设计 | 线程块策略、共享内存布局、Cooley-Tukey 分解 | OpenClaw 起草 → CC 细化 |
-| CPU SIMD 选型 | x86 AVX-512 vs ARM NEON，优先级排序 | 韩志麟决策 |
-| PyTorch 接口 | `torch.fft.fft_lowp()` API 设计 | OpenClaw 提案 |
-| 误差补偿 | Kahan summation / block floating-point 方案比较 | OpenClaw |
-
-产出：`DESIGN.md` ≥ 2000 字，含算法伪代码和 API 签名。
-
-### 1.3 开发环境确认
-
-| 检查项 | 命令/方法 |
+| 角色 | 职责 |
 |---|---|
-| GPU + CUDA 可用 | `nvidia-smi` |
-| PyTorch CUDA 版本 | `python -c "import torch; print(torch.cuda.is_available())"` |
-| cuFFT 可用 | 编译一个 cuFFT hello world |
-| CMake ≥ 3.18 | `cmake --version` |
+| **韩志麟** | 方向决策、算法确认、代码审查、导师对接 |
+| **OpenClaw（N2920）** | 文献分析、技术文档、任务拆解委托 |
+| **Claude Code（笔记本）** | 编码实现、CUDA 实验、PyTorch 封装 |
 
 ---
 
-## 阶段二：MVP 原型（6/9 - 6/22）
+## 阶段一：方案定稿 + 环境验证（6/2 - 6/5）
 
-### 目标：FP16 FFT 单层 CUDA kernel，能跑通精度测试
-
-| Sprint | 任务 | 产出 |
+| 任务 | 产出 | 负责 |
 |---|---|---|
-| **Sprint 1** (6/9-6/12) | CPU 端 Python 原型：纯 NumPy/PyTorch 实现 FP16 FFT + 精度对比 | `prototype/fp16_fft.py` + 误差数据 |
-| **Sprint 2** (6/13-6/16) | CUDA kernel v0：并行 Cooley-Tukey，共享内存 | `cuda/fft_fp16.cu` + 编译通过 |
-| **Sprint 3** (6/17-6/19) | 精度验证：kernel vs FP32 cuFFT 对比 | `experiments/` 实验日志 |
-| **Sprint 4** (6/20-6/22) | 误差补偿优化 + kernel v1 | 误差降低到可接受范围 |
-
-验收标准：FP16 FFT 相对误差 < 1e-3，吞吐量接近 FP32 cuFFT 的 1.5×。
+| 研读 cuFFT FP16 API（`cufftXtExec` + `CUDA_C_16F`） | API 使用笔记 | OpenClaw |
+| 研读 PyTorch `torch.fft` 源码（C++ 后端 + ATen dispatch） | 源码走读笔记 | OpenClaw + CC |
+| 确认笔记本 CUDA 环境 | `nvidia-smi` + cuFFT 版本号 | CC |
+| 写 cuFFT FP16 FFT hello world | 编译通过 + 跑通 | CC |
+| 更新 DESIGN.md | 补充 API 细节和伪代码 | OpenClaw |
 
 ---
 
-## 阶段三：多精度 + 封装（6/23 - 7/6）
+## 阶段二：FP16 cuFFT → PyTorch 封装（6/6 - 6/15）
+
+| Sprint | 任务 | 验收标准 |
+|---|---|---|
+| **Sprint 1** (6/6-6/8) | PyTorch C++ 扩展调用 cuFFT FP16 | `torch.fft.fft(x, precision="fp16")` 能跑 |
+| **Sprint 2** (6/9-6/11) | 实现 backward（自动微分） | gradcheck 通过 |
+| **Sprint 3** (6/12-6/13) | 精度基准：FP16 vs FP32 误差测量 | 误差 < 1e-3 |
+| **Sprint 4** (6/14-6/15) | 性能基准：吞吐量对比 | 相比 FP32 提升 ≥ 1.5× |
+
+---
+
+## 阶段三：FP8 自研 kernel（6/16 - 6/30，创新点）
 
 | 任务 | 产出 |
 |---|---|
-| FP8 FFT kernel | `cuda/fft_fp8.cu` |
-| PyTorch C++ 扩展 | `torch.fft.fft_lowp(input, precision="fp16")` |
-| 自动微分支持 | backward pass 通过测试 |
-| CPU SIMD 第一版 | x86 AVX-512 或 ARM NEON（取决于硬件） |
-
-验收标准：`torch.fft.fft_lowp()` 可在 LLM 微调 pipeline 中替换 `torch.fft.fft()`。
+| FP8 误差模型分析（蝶形运算的误差传播） | 理论分析文档 |
+| 块浮点数方案实现 | CPU Python 原型 |
+| CUDA FP8 FFT kernel v0 | 编译通过 + 基础精度测试 |
+| 精度-性能 trade-off 调优 | 实验数据矩阵 |
+| 与 FP16/FP32 基准对比 | 综合评测报告 |
 
 ---
 
-## 阶段四：测试 + 社区提交（7/7 - 7/31）
+## 阶段四：补充 + 社区准备（7/1 - 7/15）
 
-| 任务 |
-|---|
-| 基准测试矩阵（精度 × 性能 × 架构） |
-| 单元测试（CPU + GPU） |
-| 文档（Usage Guide + Design Doc） |
-| PyTorch PR 初稿 + Discuss 论坛发帖 |
+| 任务 | 产出 |
+|---|---|
+| BF16 cuFFT 封装 | 复用 FP16 框架 |
+| CPU SIMD 第一版（x86 AVX2） | 至少 FP16 支持 |
+| 单元测试全覆盖 | 精度 + 性能 + 多架构 |
+| PyTorch PR 草稿 | 代码 + 文档 + 基准测试结果 |
 
 ---
 
 ## 协作协议
 
-**韩志麟 → OpenClaw**（飞书）：
-- 说「做 xxx」→ OpenClaw 拆解 → 写入 pipeline HANDSHAKE
-- 审查完代码说「通过」/「驳回」→ 触发下一轮
-
-**OpenClaw → CC**（pipeline HANDSHAKE + wake-laptop）：
-- 每轮只派 1 个任务（Ivy Lee 规则）
-- 任务格式: `[ ] 任务标题` + 具体描述 + 期望产出
-- CC 完成 → 更新 LAPTOP-CHANGES.md → OpenClaw pull 查看
-
-**CC → OpenClaw**（git push → LAPTOP-CHANGES.md）：
-- 代码 push 到 N2920 bare repo
-- 结果写在 LAPTOP-CHANGES.md
+- **韩志麟 → OpenClaw**（飞书）：说「做 xxx」→ 拆解委派
+- **OpenClaw → CC**（HANDSHAKE + wake-laptop）：每次 1 个任务
+- **CC → OpenClaw**（git push → LAPTOP-CHANGES.md）：完成回报
 
 ---
 
-*版本: v2 | 更新: 2026-06-02 | 下一步: 阶段一 1.1 文献补充*
+*版本: v3 | 更新: 2026-06-02 | 下一步: 阶段一 — cuFFT API 研读*
