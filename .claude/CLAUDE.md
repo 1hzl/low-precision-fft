@@ -7,9 +7,9 @@
 ### 开始前
 
 1. 阅读 PROJECT-RULES.md — 了解 🔴🟡⚪ 规则
-2. 阅读 DEV-PLAN.md — 确认当前 Phase 定位
-3. 阅读 SPEC.md — 理解产品规格
-4. 如有 `docs/paper-notes/` → 查阅论文分析
+2. 阅读 PLAN.md — 确认当前 Phase 定位
+3. 阅读 DESIGN.md — 理解技术设计
+4. 如有 `paper-notes/` → 查阅论文分析笔记
 
 ### 规则分级
 
