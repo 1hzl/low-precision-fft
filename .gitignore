@@ -1,0 +1,28 @@
+# Build
+*.ptx
+*.cubin
+*.so
+*.o
+*.obj
+build/
+dist/
+__pycache__/
+*.pyc
+
+# CUDA
+*.i
+*.cudafe*
+*.fatbin*
+*.module_id
+
+# IDE
+.vscode/
+.idea/
+
+# Data (keep structure, not binaries)
+data/*.bin
+data/*.raw
+
+# OS
+.DS_Store
+Thumbs.db
