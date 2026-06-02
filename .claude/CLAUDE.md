@@ -31,10 +31,12 @@ Task 完成后逐项检查：
 ### 提交格式
 
 ```
-[task-id] 完成: 做了什么
+<type>(<project>): <description>
 ```
 
-如果就想打个草稿不触发审查，提交信息加 `[wip]` 前缀。
+Types: `feat` / `fix` / `docs` / `refactor` / `test`
+
+草稿/WIP 提交信息加 `[wip]` 前缀，如 `[wip] feat(project): 描述`。
 
 ---
 
@@ -53,7 +55,7 @@ git pull origin master
 ## After Every Task
 
 1. git add -A
-2. git commit -m '[task-id] 完成: 做了什么'
+2. git commit -m '<type>(<project>): <description>'
 3. git push origin master
 4. Push triggers auto-review on N2920
 
@@ -69,3 +71,10 @@ git pull origin master
 - **参考论文**: arXiv 2505.00582 — Block Circulant Adapter for LLMs
 - **关键发现**: PyTorch `CuFFTPlanCache.h:308-311` 已有 `kHalf → CUDA_C_16F` 映射
 - **论文分析文件**: `docs/paper-notes/low-precision-fft/` (在笔记本上)
+
+## 🔴 硬件约束（Hardware Constraints）
+
+- VRAM 使用超过 10GB 时必须主动汇报
+- 任何需要多 GPU / 更大显存的实验 → 先汇报，不硬撑
+- Han 可提供云 GPU 或购买新设备，需要时立即提出
+- 启动 CUDA kernel / benchmark 前估算 VRAM，超过阈值先警告
