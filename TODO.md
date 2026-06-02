@@ -4,5 +4,5 @@
 
 - [x] 1.1 CUDA Toolkit 安装确认
 - [x] 1.2 验证 CuFFTPlanCache.h FP16 路径
-- [ ] 1.3 FP32 vs FP16 cuFFT 基准测试
+- [ ] 1.3 FP32 vs FP16 cuFFT 基准测试 ← CC 处理中
 - [ ] 1.4 基准报告
