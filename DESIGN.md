@@ -108,6 +108,7 @@ torch.fft.irfft(input, n=None, dim=-1, norm=None, *, precision=None)
 | 6/2 | CPU 优先级降低（先 GPU） | cuFFT 已解决 GPU 侧，CPU 后续补充 |
 | 6/2 | 三人团队 → Han 统筹 + OpenClaw 调度 + CC 执行 | 目前只有两人在推进，去掉詹世显/刘子渊的分工 |
 | 6/2 | 底层基础设施优先于任务委派 | 先搭脚手架（审查标准/实验模板/MemPalace），再派开发任务 |
+| 6/2 | 可租用云电脑 / 购买新设备支撑开发 | 硬件不足时由 OpenClaw 主动汇报，不硬撑 |
 | 6/2 | PLAN.md + DESIGN.md 为单一信息源 | DEV-PLAN.md/SPEC.md 已合并，去重避免维护多份 |
 
 ---
