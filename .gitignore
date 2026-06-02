@@ -26,3 +26,4 @@ data/*.raw
 # OS
 .DS_Store
 Thumbs.db
+src/cuda/hello_fp16_fft.exe
