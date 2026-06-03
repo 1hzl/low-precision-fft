@@ -1,11 +1,20 @@
 """Low-precision FFT for PyTorch.
 
-Leverages PyTorch's native cuFFT FP16/BF16 paths (where available) and
-provides a unified API for FP32, FP16, BF16, and (future) FP8 FFT operations.
+Provides a unified API for FP32, FP16, BF16, and (future) FP8 FFT operations.
+Uses a custom cuFFT Xt extension for native FP16 when available, with fallback
+to PyTorch's built-in torch.fft.
 """
 
+import math
 import torch
 from typing import Optional
+
+# Try loading the custom cuFFT FP16 extension
+_cufft_ext = None
+try:
+    from lowp_fft import _cufft_ext
+except ImportError:
+    pass
 
 
 def _maybe_complex(tensor: torch.Tensor) -> torch.Tensor:
@@ -64,6 +73,15 @@ def fft(
 
     if precision == "fp16":
         input_half = input_complex.to(torch.complex32)
+        # Use custom cuFFT Xt extension for native FP16 execution
+        if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
+            if norm in ("backward", "ortho", "forward"):
+                result = _cufft_ext.fft_fp16(input_half.contiguous())
+                if norm == "ortho":
+                    result = result.div(math.sqrt(max(1, input_half.size(-1))))
+                elif norm == "forward":
+                    result = result.div_(input_half.size(-1))
+                return result
         return torch.fft.fft(input_half, n=n, dim=dim, norm=norm)
 
     if precision == "bf16":
@@ -109,6 +127,14 @@ def ifft(
 
     if precision == "fp16":
         input_half = input_complex.to(torch.complex32)
+        if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
+            if norm in ("backward", "ortho", "forward"):
+                result = _cufft_ext.ifft_fp16(input_half.contiguous())
+                if norm == "ortho":
+                    result = result.mul(math.sqrt(max(1, input_half.size(-1))))
+                elif norm == "forward":
+                    result = result.mul(input_half.size(-1))
+                return result
         return torch.fft.ifft(input_half, n=n, dim=dim, norm=norm)
 
     if precision == "bf16":
