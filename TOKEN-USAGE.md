@@ -88,7 +88,7 @@
 | 通道 | 数据源 | 精度 |
 |------|--------|------|
 | A. OpenClaw session | `session_status` API → `totalTokens` | ✅ 精确 |
-| B. `ai-review` 脚本 | git log diff 规模 → 公式估算 | ⚠️ 待脚本记录 usage |
+| B. `ai-review` 脚本 | 项目 `.token-usage.jsonl`（`chat()` 自动记录） | ✅ 精确（2026-06-03 上线） |
 | C. 笔记本 Claude Code | 项目 `.token-usage.jsonl`（pipeline-loop 自动写入） | ✅ 精确（Phase 2 起） |
 
 ### C 通道升级（2026-06-03）
@@ -109,13 +109,26 @@ signal 类型：`TRIGGER-task`、`TRIGGER-review`、`TRIGGER-optimize`、`HANDSH
 
 ### 改进计划
 
-- [ ] **B 通道**：修改 `ai-review` 脚本，从 API 响应的 `usage.prompt_tokens` / `usage.completion_tokens` 提取真实值
+- [x] **B 通道**：修改 `ai-review` 脚本，`chat()` 返回 API 响应的 `usage` 并写入 `.token-usage.jsonl`（2026-06-03 上线）
 - [x] **C 通道**：笔记本 pipeline-loop 自动写入 `.token-usage.jsonl`（2026-06-03 上线）
 - [ ] 每阶段结束时运行 `token-stats` 汇总并更新本文件
 
+### N2920 vs 笔记本信号类型
+
+| 信号 | 来源 | 说明 |
+|------|------|------|
+| `AUTO-review` | N2920 `ai-review` | 每次 git push 触发的自动审查 |
+| `AUTO-optimize` | N2920 `ai-review` | 审查通过后的自动优化 |
+| `TRIGGER-review` | 笔记本 pipeline-loop | 笔记本端触发的审查 |
+| `TRIGGER-optimize` | 笔记本 pipeline-loop | 笔记本端触发的优化 |
+| `HANDSHAKE` | 笔记本 pipeline-loop | HANDSHAKE.md 委派任务 |
+| `TRIGGER-task` | 笔记本 pipeline-loop | 自动触发任务 |
+
+两边都写入同一格式的 `.token-usage.jsonl`，`token-stats` 统一解析。
+
 ### Phase 1 经验系数（仅用于历史估算）
 
-> 以下为 Phase 1 的估算系数，Phase 2 起 C 通道改用 `.token-usage.jsonl` 精确值。
+> 以下为 Phase 1 的估算系数，Phase 2 起 B + C 通道均使用 `.token-usage.jsonl` 精确值。
 
 - `diff_context × 15`: 每行 git diff 约 15 个 token（含上下文）
 - `code_completion × 20`: 每写一行代码约消耗 20 token（含推理+输出）
