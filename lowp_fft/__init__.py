@@ -82,12 +82,19 @@ def fft(
         return torch.fft.fft(input_complex, n=n, dim=dim, norm=norm)
 
     if precision == "fp16":
-        input_half = input_complex.to(torch.complex32)
+        if input_complex.dtype == torch.complex32:
+            input_half = input_complex
+        else:
+            input_half = input_complex.to(torch.complex32)
         # Use custom cuFFT Xt extension for native FP16 execution
         if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
             if norm in ("backward", "ortho", "forward"):
-                from lowp_fft._autograd import FFTFP16  # noqa: E402
-                result = FFTFP16.apply(input_half.contiguous())
+                contig = input_half.contiguous()
+                if torch.is_grad_enabled():
+                    from lowp_fft._autograd import FFTFP16  # noqa: E402
+                    result = FFTFP16.apply(contig)
+                else:
+                    result = _cufft_ext.fft_fp16_forward(contig)
                 if norm == "ortho":
                     result = result / math.sqrt(max(1, input_half.size(-1)))
                 elif norm == "forward":
@@ -137,11 +144,18 @@ def ifft(
         return torch.fft.ifft(input_complex, n=n, dim=dim, norm=norm)
 
     if precision == "fp16":
-        input_half = input_complex.to(torch.complex32)
+        if input_complex.dtype == torch.complex32:
+            input_half = input_complex
+        else:
+            input_half = input_complex.to(torch.complex32)
         if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
             if norm in ("backward", "ortho", "forward"):
-                from lowp_fft._autograd import IFFTFP16  # noqa: E402
-                result = IFFTFP16.apply(input_half.contiguous())
+                contig = input_half.contiguous()
+                if torch.is_grad_enabled():
+                    from lowp_fft._autograd import IFFTFP16  # noqa: E402
+                    result = IFFTFP16.apply(contig)
+                else:
+                    result = _cufft_ext.ifft_fp16_forward(contig)
                 if norm == "ortho":
                     result = result * math.sqrt(max(1, input_half.size(-1)))
                 elif norm == "forward":
