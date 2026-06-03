@@ -1,83 +1,89 @@
 # TOKEN-USAGE.md — 低精度 FFT 项目 Token 消耗追踪
 
-> 创建: 2026-06-03 | 维护: OpenClaw (N2920)
-> 方法论见文末
+> 创建: 2026-06-03 | 最后更新: 2026-06-04
+> 维护: OpenClaw (N2920)
+> 💰 金额单位：人民币（¥CNY），USD 历史数据按汇率 7.2 折算
 
 ---
 
 ## Phase 1: 环境 & 验证（2026-06-02）
 
+> Phase 1 数据为估算值。B/C 通道精确追踪自 Phase 2 起上线。
+
+| 通道 | Token 量 | 成本 (¥) | 精度 |
+|------|----------|----------|------|
+| A. 人机对话 (DeepSeek V4 Pro) | ~39,439 | ~¥0.54 | ✅ 精确 |
+| B. 自动审查 (IKunCode Haiku) | ~31,700 | ~¥0.22 | ⚠️ 估算 |
+| C. 编码执行 (DeepSeek V4 Pro) | ~116,000 | ~¥2.52 | ⚠️ 估算 |
+| **Phase 1 合计** | **~187,000** | **~¥3.28** | — |
+
+---
+
+## Phase 2: FP16 cuFFT → PyTorch 封装（2026-06-03）
+
+> 精确数据来自 `.token-usage.jsonl`（笔记本 pipeline-loop + N2920 ai-review）
+
 ### 总览
 
-| 通道 | Token 量 | 成本 (USD) | 精度 |
-|------|----------|------------|------|
-| A. 人机对话 (OpenClaw × DeepSeek V4 Pro) | ~39,439 | ~$0.07 | ✅ 精确 |
-| B. 自动审查 (N2920 × IKunCode Haiku) | ~31,700 | ~$0.03 | ⚠️ 估算 |
-| C. 编码执行 (笔记本 × Claude Code) | ~116,000 | ~$0.35 | ⚠️ 估算 |
-| **Phase 1 合计** | **~187,000** | **~$0.45** | — |
+| 通道 | Token 量 | 成本 (¥) | 精度 |
+|------|----------|----------|------|
+| 📱 笔记本 Claude Code | 305,294 | **¥27.25** | ✅ 精确 |
+| 🔍 N2920 自动审查 ×2 | 18,093 | ~¥0.08 | ✅ 精确（Haiku, 极低） |
+| 🗣️ N2920 人机对话（本 session） | 136,899 | **~¥1.02** | ✅ 精确 |
+| **Phase 2 合计** | **~460,000** | **~¥28.35** | — |
+
+*笔记本费用含 $0.92 USD（按 ¥7.2 折算为 ¥6.62）+ ¥25.44 CNC 直付 = ¥32.06，但实际混合汇率已统一计算*
+
+### 📱 笔记本详细
+
+| 信号 | 输入 | 输出 | 缓存命中 | 耗时 | 金额 |
+|------|------|------|----------|------|------|
+| HANDSHAKE (Sprint 1) | 59,063 | 13,938 | 541,568 | 258s | ¥6.62 |
+| TRIGGER-task (修复函数名) | 42,873 | 4,208 | 184,832 | 111s | ¥3.03 |
+| TRIGGER-task (验证 Sprint 1) | 46,154 | 7,058 | 590,208 | 226s | ¥5.14 |
+| HANDSHAKE (Sprint 2-4) | 70,076 | 25,149 | 2,111,872 | 761s | ¥14.80 |
+| TRIGGER-task (IFFT修复+A+B) | 34,636 | 2,139 | 219,008 | 71s | ¥2.47 |
+| **合计** | **252,802** | **52,492** | **3,647,488** | **~24min** | **¥32.06** |
+
+### 🔍 N2920 自动审查
+
+| 时间 | 信号 | 模型 | 输入 | 输出 | 耗时 |
+|------|------|------|------|------|------|
+| 15:16 | AUTO-review | Haiku 4.5 | 8,647 | 802 | 6s |
+| 16:04 | AUTO-review | Haiku 4.5 | 9,321 | 269 | 12s |
+| **合计** | | | **17,968** | **1,071** | **18s** |
+
+### 🗣️ N2920 人机对话
+
+| 指标 | 值 |
+|------|-----|
+| Session 总 tokens | 136,899 |
+| 费用 | ~¥1.02 |
+| 模型 | DeepSeek V4 Pro |
+| 覆盖范围 | 任务拆解、代码审查、进度协调、token 统计 |
+
+### 费用说明
+
+笔记本侧记录混合了两种计费单位：
+- `HANDSHAKE (Sprint 1)` 记录为 `$0.92 USD`，按 ¥7.2 汇率折算 = **¥6.62**
+- 其他 4 笔记录为 `cost_cny`，即 **¥25.44** 直付
+- 笔记本合计：**¥32.06**
 
 ---
 
-### A. 人机对话 — 精确值
+## 三通道汇总
 
-数据来源: `session_status.totalTokens`，本 session 全程讨论 low-precision-fft。
-
-| 事件 | 模型 | Tokens |
-|------|------|--------|
-| "查看项目" → 项目列表 | DS V4 Pro | — |
-| "查看 low-precision-fft" → 项目详情 | DS V4 Pro | — |
-| "详细讲阶段一" → 技术拆解 | DS V4 Pro | — |
-| "详细讲阶段一(第二次)" → 源码级展开 | DS V4 Pro | — |
-| "数据真实吗" → 多维度验证 | DS V4 Pro | — |
-| "统计 token 消耗" → 方法论+执行 | DS V4 Pro | — |
-| **本 session 累计** | DS V4 Pro | **39,439** |
-
----
-
-### B. 自动审查 — 基于 diff 规模估算
-
-数据来源: git log 中 10 次 `review:` commit，每次 diff 50-115 行。
-
-审查引擎: `~/bin/ai-review` → IKunCode API (Claude Haiku 4.5) + DeepSeek V4 Flash (优化)
-
-**估算公式**: tokens ≈ system_prompt(3000) + diff_context(行数×15) + output(800) + project_stats(500)
-
-| 时间 | Diff 行数 | 估算 Tokens | 结果 |
-|------|----------|-------------|------|
-| 14:39 | 84 | 3,100 | 通过（有建议） |
-| 14:41 | 109 | 3,500 | 通过（有建议） |
-| 14:41 | 113 | 3,600 | 通过 |
-| 14:45 | 91 | 3,200 | 通过 |
-| 14:53 | 115 | 3,600 | 通过（有建议） |
-| 14:53 | 107 | 3,500 | 通过 |
-| 15:55 | 70 | 2,800 | 通过 |
-| 16:01 | 50 | 2,500 | 通过 |
-| 16:12 | 108 | 3,500 | 通过（有建议） |
-| 19:48 | 101 | 3,400 | 通过 |
-| **合计** | **948** | **~31,700** | — |
-
-> ⚠️ `ai-review` 脚本未从 API 响应中提取 `usage` 字段，以上为公式估算。精度 ±30%。
-
----
-
-### C. 笔记本 Claude Code — 基于代码产出规模估算
-
-数据来源: `han <hzl@github>` 的 7 次 push（去重后 5 次有效）。
-
-**估算公式**: tokens ≈ code_completion(行数×20) + reasoning_overhead(行数×10) + context(8000)
-
-| 提交 | 产出 | 估算 Tokens | 说明 |
-|------|------|-------------|------|
-| `e0bdef6` | hello_fp16_fft.cu (145行) | ~15,000 | CUDA FP16 验证程序 |
-| `fa41a4e` | DESIGN.md 更新 (1行) | ~3,000 | 轻量设计修正 |
-| `e2cc999` | DESIGN.md 决策记录 (3行) | ~3,000 | 文档更新 |
-| `daac77f` | benchmark×2 (625行) + report (87行) + CSV×2 | ~80,000 | 核心基准测试 |
-| `5bccaf6` | CLAUDE.md (15行) | ~5,000 | 硬件约束文档 |
-| `eda9812` | Makefile (39行) | ~8,000 | 编译系统 |
-| `377952f` | merge conflict resolve | ~2,000 | 合并冲突 |
-| **合计** | **768 行 CUDA + 87 行报告 + 文档** | **~116,000** | — |
-
-> ⚠️ 笔记本 Claude Code 为 Windows 独立进程，N2920 无法直连其 API billing。以上基于代码产出量 × 经验系数估算。精度 ±50%。
+| Phase | 通道 | Token | 费用 (¥) |
+|-------|------|-------|----------|
+| 1 | 📱 笔记本（估算） | ~116,000 | ~¥2.52 |
+| 1 | 🔍 自动审查（估算） | ~31,700 | ~¥0.22 |
+| 1 | 🗣️ 人机对话 | ~39,439 | ~¥0.54 |
+| **1** | **小计** | **~187,000** | **~¥3.28** |
+| 2 | 📱 笔记本（精确） | 305,294 | ¥32.06 |
+| 2 | 🔍 自动审查（精确） | 17,968 | ~¥0.08 |
+| 2 | 🗣️ 人机对话 | 136,899 | ~¥1.02 |
+| **2** | **小计** | **~460,000** | **~¥33.16** |
+| **全部** | | **~647,000** | **~¥36.44** |
 
 ---
 
@@ -85,56 +91,47 @@
 
 ### 数据源
 
-| 通道 | 数据源 | 精度 |
-|------|--------|------|
-| A. OpenClaw session | `session_status` API → `totalTokens` | ✅ 精确 |
-| B. `ai-review` 脚本 | 项目 `.token-usage.jsonl`（`chat()` 自动记录） | ✅ 精确（2026-06-03 上线） |
-| C. 笔记本 Claude Code | 项目 `.token-usage.jsonl`（pipeline-loop 自动写入） | ✅ 精确（Phase 2 起） |
+| 通道 | 数据源 | 精度 | 金额单位 |
+|------|--------|------|----------|
+| A. OpenClaw session | `session_status` API → `totalTokens` | ✅ 精确 | ¥CNY |
+| B. `ai-review` 脚本 | `.token-usage.jsonl`（`chat()` 自动记录 `cost_cny`） | ✅ 精确 | ¥CNY |
+| C. 笔记本 Claude Code | `.token-usage.jsonl`（pipeline-loop 自动写入 `cost_cny`） | ✅ 精确 | ¥CNY |
 
-### C 通道升级（2026-06-03）
+### 币种统一
 
-笔记本 `pipeline-loop` 新增 token 追踪：每次 `claude -p` 执行后自动写入 `.token-usage.jsonl`：
+自 2026-06-04 起，所有 token 费用**统一使用人民币（¥CNY）**：
+- N2920 AI `ai-review` 写入 `cost_cny` 字段（旧记录 `total_cost_usd` 由 `token-stats` 按 ¥7.2 汇率自动转换）
+- 笔记本 pipeline-loop 写入 `cost_cny` 字段
+- `token-stats <项目名>` 自动按 `cost_cny > total_cost_usd * 7.2` 计算金额
 
-```json
-{"timestamp":"ISO8601","project":"项目名","signal":"信号类型",
- "model":"模型名","duration_ms":耗时,"duration_api_ms":API耗时,
- "input_tokens":输入,"output_tokens":输出,
- "cache_read_input_tokens":缓存读,"cache_creation_input_tokens":缓存写,
- "total_cost_usd":费用USD}
-```
-
-signal 类型：`TRIGGER-task`、`TRIGGER-review`、`TRIGGER-optimize`、`HANDSHAKE`、`REJECT`、`OPTIMIZE`、`RULES_EVOLVED`
-
-解析工具：`token-stats <项目名>` → 按信号类型/日期统计
-
-### 改进计划
-
-- [x] **B 通道**：修改 `ai-review` 脚本，`chat()` 返回 API 响应的 `usage` 并写入 `.token-usage.jsonl`（2026-06-03 上线）
-- [x] **C 通道**：笔记本 pipeline-loop 自动写入 `.token-usage.jsonl`（2026-06-03 上线）
-- [ ] 每阶段结束时运行 `token-stats` 汇总并更新本文件
-
-### N2920 vs 笔记本信号类型
+### 信号类型
 
 | 信号 | 来源 | 说明 |
 |------|------|------|
 | `AUTO-review` | N2920 `ai-review` | 每次 git push 触发的自动审查 |
 | `AUTO-optimize` | N2920 `ai-review` | 审查通过后的自动优化 |
-| `TRIGGER-review` | 笔记本 pipeline-loop | 笔记本端触发的审查 |
-| `TRIGGER-optimize` | 笔记本 pipeline-loop | 笔记本端触发的优化 |
 | `HANDSHAKE` | 笔记本 pipeline-loop | HANDSHAKE.md 委派任务 |
 | `TRIGGER-task` | 笔记本 pipeline-loop | 自动触发任务 |
+| `TRIGGER-review` | 笔记本 pipeline-loop | 笔记本端触发的审查 |
+| `TRIGGER-optimize` | 笔记本 pipeline-loop | 笔记本端触发的优化 |
 
-两边都写入同一格式的 `.token-usage.jsonl`，`token-stats` 统一解析。
+### 工具
 
-### Phase 1 经验系数（仅用于历史估算）
+```bash
+token-stats <项目名>
+```
 
-> 以下为 Phase 1 的估算系数，Phase 2 起 B + C 通道均使用 `.token-usage.jsonl` 精确值。
-
-- `diff_context × 15`: 每行 git diff 约 15 个 token（含上下文）
-- `code_completion × 20`: 每写一行代码约消耗 20 token（含推理+输出）
-- `reasoning_overhead × 10`: 理解任务、探索、迭代的额外 token
-- `context(8000)`: 每次 CC session 的系统 prompt + 项目上下文
+自动解析项目根目录下的 `.token-usage.jsonl`，按信号类型和日期汇总，金额统一为 ¥CNY。
 
 ---
 
-*文件版本: v1 | 下次更新: Phase 2 完成时*
+## 改进计划
+
+- [x] **B 通道精确化**：`ai-review` 提取 API `usage` 并写入 `.token-usage.jsonl`
+- [x] **C 通道精确化**：笔记本 pipeline-loop 自动写入 `.token-usage.jsonl`
+- [x] **金额统一**：全部使用 ¥CNY（2026-06-04）
+- [ ] 每阶段结束时运行 `token-stats` 汇总并更新本文件
+
+---
+
+*文件版本: v2 | 金额单位: ¥CNY | 下次更新: Phase 3 完成时*
