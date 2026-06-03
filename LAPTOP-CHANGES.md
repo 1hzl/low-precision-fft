@@ -36,3 +36,30 @@
 - `data/bench-fp32-vs-fp16.csv` — legacy API vs Xt API benchmark results
 - `data/bench-fp32-vs-fp16-xt.csv` — Xt API only benchmark results
 - `data/benchmark-report.md` — 完整分析报告
+
+## 2026-06-03: HANDSHAKE pull-check + Sprint 2.1 验证
+
+### Pull-check 结果
+
+- `git pull n2920 master`: Already up to date
+- 无 `HANDSHAKE.md` 文件 — 任务委派文件尚未创建
+- REVIEW.md: 最新审查 "通过"，无需修改
+
+### Sprint 2.1 验证 ✅
+
+- 代码已存在（commit `d32382b`），本次验证运行通过
+- `lowp_fft/csrc/cufft_fp16.cu`: C++ CUDA extension wrapping cuFFT XP16
+- `lowp_fft/__init__.py`: Python API (`fft`, `ifft`) with fp16/fp32/bf16
+- 验证结果:
+  - FP16 FFT forward: 正常
+  - FP16 IFFT roundtrip max diff: 0.003937
+  - FP32 vs FP16 FFT rel error: ~0.0014（设计目标 <1e-3，接近满足）
+  - Batched FFT (4×1024): 正常
+- TODO.md 已更新: 2.1 → [x]
+
+### 剩余未检查任务
+
+- [ ] 2.2 Sprint 2: backward 自动微分（计划 6/9-6/11）
+- [ ] 2.3 Sprint 3: FP16 vs FP32 精度基准
+- [ ] 2.4 Sprint 4: 性能基准吞吐量对比
+- 以上三项尚未委派，等待 HANDSHAKE.md 或明确指令
