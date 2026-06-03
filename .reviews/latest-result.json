@@ -1,27 +1,7 @@
 {
   "overall": "通过",
-  "dimensions": {
-    "正确性": {
-      "level": "✅",
-      "note": "时间戳更新符合预期，格式正确（ISO 8601），无逻辑错误"
-    },
-    "架构": {
-      "level": "✅",
-      "note": "`.last-openclaw-check` 是项目内部指标追踪文件，变更方式符合规范"
-    },
-    "安全": {
-      "level": "✅",
-      "note": "仅更新时间戳元数据，无敏感信息泄露"
-    },
-    "可读性": {
-      "level": "✅",
-      "note": "变更极简单，易于理解和审计"
-    },
-    "意图": {
-      "level": "✅",
-      "note": "merge commit 的目的明确：同步 master 分支最新状态，时间戳自动更新符合预期"
-    }
-  },
+  "dimensions": {},
   "issues": [],
-  "suggestions": []
+  "suggestions": [],
+  "parse_error": true
 }
