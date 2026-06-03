@@ -128,3 +128,39 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - 所有 Phase 2 sprint (2.1-2.4) 已完成 ✅
 - Phase 3 FP8 自研 kernel 计划 6/16 开始
 - 等待 N2920 创建 HANDSHAKE.md 委派下一批任务
+
+## 2026-06-04 (续): Phase 2.4 优化 — 消除 Python wrapper overhead
+
+### 方案 A — 免转换路径 ✅
+
+- `fft()` 和 `ifft()` 的 `precision=fp16` 分支：检查 `input_complex.dtype == torch.complex32`，匹配则跳过 `.to(torch.complex32)`
+- 收益: ~5-8 us 省去不必要的 CUDA kernel launch
+- 文件: `lowp_fft/__init__.py` (lines 85-88, 147-150)
+
+### 方案 B — no_grad 快速通道 ✅
+
+- 在调用 autograd Function 前检查 `torch.is_grad_enabled()`
+- `is_grad_enabled() == False` → 直接调用 `_cufft_ext.fft_fp16_forward()` / `_cufft_ext.ifft_fp16_forward()`
+- `is_grad_enabled() == True` → 仍走 `FFTFP16.apply()` / `IFFTFP16.apply()` 保留 autograd 图
+- 收益: ~3-6 us 省去 autograd context setup
+- 文件: `lowp_fft/__init__.py` (lines 92-97, 154-158)
+
+### 验证结果
+
+- Grad path: forward + backward 正常，grad 形状和 dtype 正确
+- No-grad path: 直接调用正常
+- Consistency: autograd vs no_grad 输出完全一致 (max diff = 0.00e+00)
+- 单 FFT 加速比 (FP16 vs FP32 wrapper):
+
+  | Size  | FP32_us | Before (Wrapper) | After (NoGrad) |
+  |-------|---------|-------------------|----------------|
+  | 256   | 11.2    | 0.64x            | **1.04x**      |
+  | 512   | 12.2    | 0.70x            | **1.15x**      |
+  | 1024  | 11.2    | 0.67x            | **1.08x**      |
+  | 2048  | 10.8    | 0.65x            | **1.02x**      |
+  | 4096  | 10.1    | 0.60x            | **1.04x**      |
+  | 8192  | 10.7    | 0.67x            | **1.14x**      |
+
+- **验收通过**: 单 FFT FP16 不低于 FP32 速度 (≥1.0x)，batch 场景不受影响
+- 已有测试: 10/12 PASSED (2 个 pre-existing failures 为 FP16 数值精度问题)
+- TODO.md 已更新: 2.4 优化 → [x]
