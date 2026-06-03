@@ -118,11 +118,11 @@ static torch::Tensor fft_fp16_impl(torch::Tensor input, int direction) {
     return output;
 }
 
-torch::Tensor fft_fp16(torch::Tensor input) {
+torch::Tensor fft_fp16_forward(torch::Tensor input) {
     return fft_fp16_impl(input, CUFFT_FORWARD);
 }
 
-torch::Tensor ifft_fp16(torch::Tensor input) {
+torch::Tensor ifft_fp16_forward(torch::Tensor input) {
     return fft_fp16_impl(input, CUFFT_INVERSE);
 }
 
@@ -138,8 +138,8 @@ static void cleanup_plans() {
 
 // ─── pybind11 ───────────────────────────────────────────────────────
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-    m.def("fft_fp16", &fft_fp16, "1D forward FFT via cuFFT FP16 (along last dim)");
-    m.def("ifft_fp16", &ifft_fp16, "1D inverse FFT via cuFFT FP16 (along last dim)");
+    m.def("fft_fp16_forward", &fft_fp16_forward, "1D forward FFT via cuFFT FP16 (along last dim)");
+    m.def("ifft_fp16_forward", &ifft_fp16_forward, "1D inverse FFT via cuFFT FP16 (along last dim)");
 
     // Register cleanup so plans are freed on module unload
     m.add_object("_cleanup", py::capsule(cleanup_plans));
