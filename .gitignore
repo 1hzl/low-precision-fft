@@ -2,6 +2,8 @@
 *.ptx
 *.cubin
 *.so
+*.pyd
+*.dll
 *.o
 *.obj
 build/

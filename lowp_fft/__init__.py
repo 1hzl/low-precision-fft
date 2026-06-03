@@ -6,13 +6,23 @@ to PyTorch's built-in torch.fft.
 """
 
 import math
+import os
+import sys
 import torch
 from typing import Optional
+
+# Ensure CUDA DLLs are findable on Windows
+_cuda_dll_dir = os.path.join(
+    os.environ.get("CUDA_PATH", "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3"),
+    "bin/x64",
+)
+if os.path.isdir(_cuda_dll_dir) and sys.platform == "win32":
+    os.add_dll_directory(_cuda_dll_dir)
 
 # Try loading the custom cuFFT FP16 extension
 _cufft_ext = None
 try:
-    from lowp_fft import _cufft_ext
+    import lowp_fft._cufft_ext as _cufft_ext  # noqa: F811
 except ImportError:
     pass
 
@@ -76,11 +86,12 @@ def fft(
         # Use custom cuFFT Xt extension for native FP16 execution
         if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
             if norm in ("backward", "ortho", "forward"):
-                result = _cufft_ext.fft_fp16(input_half.contiguous())
+                from lowp_fft._autograd import FFTFP16  # noqa: E402
+                result = FFTFP16.apply(input_half.contiguous())
                 if norm == "ortho":
-                    result = result.div(math.sqrt(max(1, input_half.size(-1))))
+                    result = result / math.sqrt(max(1, input_half.size(-1)))
                 elif norm == "forward":
-                    result = result.div_(input_half.size(-1))
+                    result = result / input_half.size(-1)
                 return result
         return torch.fft.fft(input_half, n=n, dim=dim, norm=norm)
 
@@ -129,11 +140,12 @@ def ifft(
         input_half = input_complex.to(torch.complex32)
         if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
             if norm in ("backward", "ortho", "forward"):
-                result = _cufft_ext.ifft_fp16(input_half.contiguous())
+                from lowp_fft._autograd import IFFTFP16  # noqa: E402
+                result = IFFTFP16.apply(input_half.contiguous())
                 if norm == "ortho":
-                    result = result.mul(math.sqrt(max(1, input_half.size(-1))))
+                    result = result * math.sqrt(max(1, input_half.size(-1)))
                 elif norm == "forward":
-                    result = result.mul(input_half.size(-1))
+                    result = result * input_half.size(-1)
                 return result
         return torch.fft.ifft(input_half, n=n, dim=dim, norm=norm)
 
