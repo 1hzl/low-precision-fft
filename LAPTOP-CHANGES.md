@@ -113,3 +113,18 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - [x] 2.4 性能基准
 
 **下一阶段**: Phase 3 — FP8 自研 kernel（6/16 - 6/30）
+
+## 2026-06-04: HANDSHAKE pull-check
+
+### Pull-check 结果
+
+- `git pull n2920 master`: Already up to date
+- `HANDSHAKE.md`: 不存在 — OpenClaw/N2920 尚未创建任务委派文件
+- `TODO.md`: Phase 1 + Phase 2 全部完成 — 无待处理任务
+- `REVIEW.md`: 最新审查 "通过" — 无需修改
+
+### 当前状态
+
+- 所有 Phase 2 sprint (2.1-2.4) 已完成 ✅
+- Phase 3 FP8 自研 kernel 计划 6/16 开始
+- 等待 N2920 创建 HANDSHAKE.md 委派下一批任务
