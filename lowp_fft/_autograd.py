@@ -44,7 +44,7 @@ class IFFTFP16(torch.autograd.Function):
         n = input.size(-1)
         ctx._saved_n = n
         result = _ext.ifft_fp16_forward(input.contiguous())
-        return result.div_(n)
+        return result
 
     @staticmethod
     def backward(ctx, grad_output):
