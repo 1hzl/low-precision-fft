@@ -89,16 +89,33 @@
 |------|--------|------|
 | A. OpenClaw session | `session_status` API → `totalTokens` | ✅ 精确 |
 | B. `ai-review` 脚本 | git log diff 规模 → 公式估算 | ⚠️ 待脚本记录 usage |
-| C. 笔记本 Claude Code | git log 产出量 → 经验系数 | ⚠️ 待笔记本回报 |
+| C. 笔记本 Claude Code | 项目 `.token-usage.jsonl`（pipeline-loop 自动写入） | ✅ 精确（Phase 2 起） |
+
+### C 通道升级（2026-06-03）
+
+笔记本 `pipeline-loop` 新增 token 追踪：每次 `claude -p` 执行后自动写入 `.token-usage.jsonl`：
+
+```json
+{"timestamp":"ISO8601","project":"项目名","signal":"信号类型",
+ "model":"模型名","duration_ms":耗时,"duration_api_ms":API耗时,
+ "input_tokens":输入,"output_tokens":输出,
+ "cache_read_input_tokens":缓存读,"cache_creation_input_tokens":缓存写,
+ "total_cost_usd":费用USD}
+```
+
+signal 类型：`TRIGGER-task`、`TRIGGER-review`、`TRIGGER-optimize`、`HANDSHAKE`、`REJECT`、`OPTIMIZE`、`RULES_EVOLVED`
+
+解析工具：`token-stats <项目名>` → 按信号类型/日期统计
 
 ### 改进计划
 
-- [ ] **B 通道**：修改 `ai-review` 脚本，从 API 响应的 `usage.prompt_tokens` / `usage.completion_tokens` 提取真实值，写入 `TOKEN-USAGE.md`
-- [ ] **C 通道**：要求笔记本 Claude Code 在 `LAPTOP-CHANGES.md` 中附带 session token 统计
-- [ ] 每阶段结束时更新本文件
-- [ ] Phase 2 起，C 通道改为实测值
+- [ ] **B 通道**：修改 `ai-review` 脚本，从 API 响应的 `usage.prompt_tokens` / `usage.completion_tokens` 提取真实值
+- [x] **C 通道**：笔记本 pipeline-loop 自动写入 `.token-usage.jsonl`（2026-06-03 上线）
+- [ ] 每阶段结束时运行 `token-stats` 汇总并更新本文件
 
-### 经验系数说明
+### Phase 1 经验系数（仅用于历史估算）
+
+> 以下为 Phase 1 的估算系数，Phase 2 起 C 通道改用 `.token-usage.jsonl` 精确值。
 
 - `diff_context × 15`: 每行 git diff 约 15 个 token（含上下文）
 - `code_completion × 20`: 每写一行代码约消耗 20 token（含推理+输出）
