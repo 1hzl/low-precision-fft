@@ -10,6 +10,6 @@
 ## Phase 2: FP16 cuFFT → PyTorch 封装
 
 - [x] 2.1 Sprint 1: PyTorch C++ 扩展封装 cuFFT FP16 ← ✅ 已完成
-- [ ] 2.2 Sprint 2: backward 自动微分 ← 🔄 已委派 (HANDSHAKE)
-- [ ] 2.3 Sprint 3: FP16 vs FP32 精度基准
-- [ ] 2.4 Sprint 4: 性能基准吞吐量对比
+- [x] 2.2 Sprint 2: backward 自动微分 ← ✅ 已完成 (gradcheck PASSED)
+- [x] 2.3 Sprint 3: FP16 vs FP32 精度基准 ← ✅ 已完成 (max rel_err < 0.5%)
+- [x] 2.4 Sprint 4: 性能基准吞吐量对比 ← ✅ 已完成 (raw cuFFT 1.4x-2.8x batched)
