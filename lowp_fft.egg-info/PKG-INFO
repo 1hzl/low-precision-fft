@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: lowp_fft
+Version: 0.1.0
+Summary: Low-precision FFT for PyTorch — FP16/BF16/FP8 wrappers
+Requires-Python: >=3.10
+Requires-Dist: torch>=2.0
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
