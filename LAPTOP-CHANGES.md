@@ -164,3 +164,52 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - **验收通过**: 单 FFT FP16 不低于 FP32 速度 (≥1.0x)，batch 场景不受影响
 - 已有测试: 10/12 PASSED (2 个 pre-existing failures 为 FP16 数值精度问题)
 - TODO.md 已更新: 2.4 优化 → [x]
+
+## 2026-06-04 (续 2): Phase 3 Sprint 3.1 — FP8 误差理论分析
+
+### 3.1a — FP8 E4M3 表示能力分析 ✅
+
+- 文档: `docs/fp8-e4m3-basics.md`
+- 关键数值:
+  - max normal = 448, min normal = 0.015625, min subnormal = 0.001953
+  - 动态范围 28,672:1 (2^14.8)，远小于 FP16 的 2^30
+  - mantissa 仅 3 位 → 每操作 ±6.25% 相对误差
+  - N > 256 无归一化时必然溢出 FP8 (需 1/N 归一化)
+  - E4M3 >> E5M2: FFT 需要尾数精度而非动态范围
+- 硬件: RTX 5070 Ti (Blackwell SM_120) 有完整 FP8 原生支持
+
+### 3.1b — FFT 蝶形误差传播模型 ✅
+
+- 文档: `docs/fp8-fft-error-model.md`
+- 仿真: `tests/sim_fp8_fft_error.py` (FP8 E4M3 量化器 + Radix-2 DIT FFT)
+- 关键发现:
+  - 经典 Higham γ_k 误差界在 FP8 下发散 (kε ≥ 1 at N=256) — 理论保证失效
+  - 仿真: N≤128 时 SNR > 9 dB (可用), N≥256 时 SNR ~0 dB (崩溃)
+  - 朴素随机游走模型高估误差 16-27 dB → FFT 酉结构提供自然误差对消
+  - Per-stage 值域分析: 增长平缓 (~1.5×/stage), max=27 at stage 9 (远低于 FP8 max=448)
+  - 块浮点 BFP 理论: N=4096 预期 SNR ~7-8 dB
+
+### 3.1c — 三种候选方案对比 ✅
+
+- 文档: `docs/fp8-strategy-comparison.md`
+- 方案 A (块浮点 BFP): 加权总分 4.35/5 — **推荐**
+  - 精度可控 (per-stage 共享指数)
+  - FFT 结构完美适配
+  - 有成熟理论支撑 (Oppenheim & Weinstein 1972)
+- 方案 B (动态缩放): 总分 2.85/5 — 精度不可控
+- 方案 C (混合精度): 总分 2.55/5 — 跨精度开销大
+- 实施路线: Phase 3.2 CPU 原型 → 3.3 CUDA kernel v0 → 3.4 调优
+
+### 文献调研 ✅
+
+- 6 篇核心文献已梳理并引用
+- FP8 FFT 全网无公开实现 — 确认本项目有原创贡献空间
+- 块浮点 FFT 有 1970s 理论基础，结合现代 FP8 硬件是创新方向
+
+### 输出文件
+
+- `docs/fp8-e4m3-basics.md`
+- `docs/fp8-fft-error-model.md`
+- `docs/fp8-strategy-comparison.md`
+- `tests/sim_fp8_fft_error.py`
+- TODO.md 已更新: 3.1a → [x], 3.1b → [x], 3.1c → [x]
