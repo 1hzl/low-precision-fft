@@ -42,6 +42,24 @@ BFP_API int bfp_fft_forward(
 );
 
 /**
+ * BFP inverse FFT.
+ *
+ * @param x_real      Input real parts (N elements, natural order)
+ * @param x_imag      Input imag parts (N elements, natural order)
+ * @param X_real      Output real parts (N elements, natural order)
+ * @param X_imag      Output imag parts (N elements, natural order)
+ * @param N           FFT size (must be power of 2)
+ * @param stages_exp  Output: shared exponents (log2(N)+1 elements)
+ * @return 0 on success, -1 on error
+ */
+BFP_API int bfp_fft_inverse(
+    const float* x_real, const float* x_imag,
+    float* X_real, float* X_imag,
+    int N,
+    int* stages_exp
+);
+
+/**
  * Compute SQNR between reference and test signals.
  *
  * @param ref_real  Reference real parts

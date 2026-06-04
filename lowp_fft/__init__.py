@@ -237,7 +237,18 @@ def fft(
         return _bf16_fft_impl(input_complex, n, dim, norm, "forward")
 
     if precision == "fp8":
-        raise NotImplementedError("FP8 FFT is planned for Phase 3.")
+        from lowp_fft.bfp_fft import BFPFFT
+        x_np = input_complex.cpu().numpy()
+        bfp = BFPFFT(x_np.shape[-1])
+        result_np = bfp.forward(x_np)
+        result = torch.from_numpy(result_np).to(input_complex.device)
+        if norm == "ortho":
+            n_dim = float(input_complex.size(dim))
+            result = result / math.sqrt(max(1, n_dim))
+        elif norm == "forward":
+            n_dim = float(input_complex.size(dim))
+            result = result / n_dim
+        return result
 
     raise ValueError(
         f"Unknown precision '{precision}'. Choose 'fp32', 'fp16', 'bf16', or 'fp8'."
@@ -267,7 +278,18 @@ def ifft(
         return _bf16_fft_impl(input_complex, n, dim, norm, "inverse")
 
     if precision == "fp8":
-        raise NotImplementedError("FP8 IFFT is planned for Phase 3.")
+        from lowp_fft.bfp_fft import BFPFFT
+        x_np = input_complex.cpu().numpy()
+        bfp = BFPFFT(x_np.shape[-1])
+        result_np = bfp.inverse(x_np)
+        result = torch.from_numpy(result_np).to(input_complex.device)
+        if norm == "ortho":
+            n_dim = float(input_complex.size(dim))
+            result = result * math.sqrt(max(1, n_dim))
+        elif norm == "forward":
+            n_dim = float(input_complex.size(dim))
+            result = result * n_dim
+        return result
 
     raise ValueError(f"Unknown precision '{precision}'.")
 

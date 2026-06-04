@@ -716,3 +716,62 @@ Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
 - `experiments/bergach-repro/bf16_fft_sqnr.py` — BF16 vs FP64 benchmark 脚本
 - `experiments/bergach-repro/bf16_fft_sqnr_uniform_N{256,512,1024,2048,4096}.csv` — 5 个 per-trial 数据文件
 - `experiments/bergach-repro/bf16_fft_sqnr_summary.csv` — 汇总数据
+
+## 2026-06-05: Sprint 4.2 — BFP 功能补全 + 性能优化 + 项目收尾 ✅
+
+### Fix 1 — BFP 接入公共 API ✅
+
+- [x] `lowp_fft/__init__.py`: `precision="fp8"` 不再 raise NotImplementedError
+- [x] `fft(precision="fp8")` → BFPFFT.forward(), `ifft(precision="fp8")` → BFPFFT.inverse()
+- [x] 支持 norm=ortho/forward
+- [x] 注意: Python BFP 原型仅 CPU，大 N 会慢（CUDA BFP 接入 API 后替换）
+
+### Fix 2 — BFP CUDA inverse FFT ✅
+
+- [x] `src/cuda/bfp_fft.cu`: 新增 `bfp_fft_inverse()` + `bfp_scale_output` kernel
+- [x] `src/cuda/bfp_fft.h`: 新增 `bfp_fft_inverse()` 声明
+- [x] DIT stage kernel 新增 `inverse` 参数控制 twiddle 符号 (+2πi/jump)
+- [x] nvcc 编译通过 (sm_120)
+- [x] Roundtrip 验证: N=64 SQNR 19.5 dB (双 pass FP8 量化符合预期)
+
+### Fix 3 — 内存带宽 benchmark ✅
+
+- [x] `tests/bench_bfp_memory.py`: 大 batch (256-1024) × 大 N (4096-32768)
+- [x] 对比 BFP FP8 (2 bytes/elem) vs FP16 (4 bytes/elem) vs FP32 (8 bytes/elem)
+- [x] 指标: effective bandwidth GB/s
+
+### Fix 4 — BFP 边界测试 ✅
+
+- [x] `tests/test_bfp_fft.py`: 新增 5 个测试, 22/22 全部通过
+  - DC-only 信号 + 噪声验证 SQNR > 10 dB
+  - 极端动态范围 (bin[0]=448, 其余=2^-9)
+  - 全零输入验证不崩溃 + 输出全零
+  - N=2, N=4 最小合法输入 roundtrip
+
+### Fix 5 — README 更新 ✅
+
+- [x] 项目简介、支持精度表 (FP32/FP16/BF16/BFP FP8 + SQNR)
+- [x] 安装方式 (pip install -e .)
+- [x] 使用示例 (3 行 Python)
+- [x] 项目结构概览
+
+### 验收清单
+
+- [x] `lowp_fft.fft(x, precision="fp8")` 可调用
+- [x] `bfp_fft_inverse` CUDA 编译通过 + roundtrip 测试正确
+- [x] Memory bandwidth benchmark 已创建
+- [x] 边界测试全部通过 (22/22)
+- [x] README.md 更新
+- [x] nvcc 编译通过 (bfp_fft.exe)
+- [x] pytest test_bfp_fft.py 全绿
+
+### 输出文件
+
+- `lowp_fft/__init__.py` — 更新 (fp8 → BFPFFT)
+- `src/cuda/bfp_fft.cu` — 更新 (inverse FFT + scale kernel)
+- `src/cuda/bfp_fft.h` — 更新 (bfp_fft_inverse 声明)
+- `tests/test_bfp_fft.py` — 更新 (边界测试)
+- `tests/bench_bfp_memory.py` — 新增 (内存带宽 benchmark)
+- `README.md` — 更新 (完整项目文档)
+- `TODO.md` — 更新 (Sprint 4.2 → [x])
+- `build/bfp_fft.exe` — 重新编译 (含 inverse 支持)

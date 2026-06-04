@@ -114,6 +114,75 @@ class TestBFPFFT:
             BFPFFT(10)
 
 
+# ── Boundary tests (Sprint 4.2) ─────────────────────────────────────
+
+class TestBFPBoundary:
+    """Edge case tests for BFP FFT prototype."""
+
+    def test_dc_only_signal(self):
+        """DC-only signal: delta-like but non-impulse, add noise verify SQNR."""
+        N = 64
+        np.random.seed(42)
+        x = np.zeros(N, dtype=np.complex128)
+        x[0] = 1.0  # DC-only
+        # Add small noise to prevent degenerate case
+        x += (np.random.randn(N) + 1j * np.random.randn(N)) * 1e-3
+        ref = np.fft.fft(x)
+        bfp = BFPFFT(N)
+        result = bfp.forward(x)
+        diff = np.sum(np.abs(ref - result) ** 2)
+        sig = np.sum(np.abs(ref) ** 2)
+        sqnr = float(10 * np.log10(sig / (diff + 1e-15)))
+        assert sqnr > 10, f"DC-only SQNR {sqnr:.1f} dB should be > 10 dB"
+
+    def test_extreme_dynamic_range(self):
+        """One bin at max value (448), others at min subnormal (2^-9)."""
+        N = 64
+        x = np.zeros(N, dtype=np.complex128)
+        x[0] = 448.0 + 0j          # Near FP8 max
+        x[1:] = 2.0 ** (-9) + 0j   # FP8 min subnormal
+        bfp = BFPFFT(N)
+        result = bfp.forward(x)
+        ref = np.fft.fft(x)
+        # Should not crash; verify output is finite
+        assert np.all(np.isfinite(result))
+        # SQNR: extreme range may degrade but should be > 0 dB
+        diff = np.sum(np.abs(ref - result) ** 2)
+        sig = np.sum(np.abs(ref) ** 2)
+        sqnr = float(10 * np.log10(sig / (diff + 1e-15)))
+        assert sqnr > 0, f"Extreme range SQNR {sqnr:.1f} dB should be > 0 dB"
+
+    def test_all_zeros_input(self):
+        """All-zero input should not crash and produce all-zero output."""
+        N = 32
+        x = np.zeros(N, dtype=np.complex128)
+        bfp = BFPFFT(N)
+        result_fwd = bfp.forward(x)
+        assert np.allclose(result_fwd, 0.0, atol=1e-15), \
+            f"Forward of all-zeros should be all-zeros, got max|result|={np.max(np.abs(result_fwd))}"
+        result_inv = bfp.inverse(x)
+        assert np.allclose(result_inv, 0.0, atol=1e-15), \
+            f"Inverse of all-zeros should be all-zeros, got max|result|={np.max(np.abs(result_inv))}"
+
+    @pytest.mark.parametrize("N", [2, 4])
+    def test_minimum_legal_input(self, N):
+        """N=2 and N=4: smallest valid power-of-2 inputs."""
+        np.random.seed(7)
+        x = (np.random.randn(N) + 1j * np.random.randn(N)) / N
+        bfp = BFPFFT(N)
+        ref = np.fft.fft(x)
+        result = bfp.forward(x)
+        diff = np.sum(np.abs(ref - result) ** 2)
+        sig = np.sum(np.abs(ref) ** 2)
+        sqnr = float(10 * np.log10(sig / (diff + 1e-15)))
+        assert sqnr > 5, f"N={N} SQNR {sqnr:.1f} dB too low"
+        # Roundtrip
+        X = bfp.forward(x)
+        x_hat = bfp.inverse(X)
+        rt_err = np.max(np.abs(x_hat - x)) / max(np.max(np.abs(x)), 1e-10)
+        assert rt_err < 0.5, f"N={N} roundtrip error {rt_err:.2e} too large"
+
+
 # ── Benchmark helper (not a test, but verified by running) ───────────
 
 def run_bfp_benchmark():

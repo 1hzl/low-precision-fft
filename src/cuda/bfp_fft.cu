@@ -85,7 +85,8 @@ __global__ void bfp_fft_dit_stage(
     const int* __restrict__ stages_exp,
     int stage,
     int step,
-    int N
+    int N,
+    int inverse
 ) {
     int tid = blockIdx.x * blockDim.x + threadIdx.x;
     int num_pairs = N / 2;
@@ -106,8 +107,9 @@ __global__ void bfp_fft_dit_stage(
     float br = fp8_to_float(fp8_re[b]) * scale;
     float bi = fp8_to_float(fp8_im[b]) * scale;
 
-    // Twiddle W^k = exp(-pi * i * pair_off / step)
-    float angle = -M_PI * (float)pair_off / (float)step;
+    // Twiddle W^k = exp(sign * pi * i * pair_off / step)
+    float angle_sign = inverse ? M_PI : -M_PI;
+    float angle = angle_sign * (float)pair_off / (float)step;
     float tw_re = cosf(angle);
     float tw_im = sinf(angle);
 
@@ -192,6 +194,20 @@ __global__ void bfp_dequant_output(
     out_im[idx] = fp8_to_float(fp8_im[idx]) * scale;
 }
 
+// ─── Kernel: Scale output by 1/N (inverse FFT only) ──────────────────────
+
+__global__ void bfp_scale_output(
+    float* __restrict__ out_re,
+    float* __restrict__ out_im,
+    int N
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= N) return;
+    float inv_n = 1.0f / (float)N;
+    out_re[idx] *= inv_n;
+    out_im[idx] *= inv_n;
+}
+
 // ─── Host: Full BFP forward FFT ────────────────────────────────────────
 
 BFP_API int bfp_fft_forward(
@@ -268,7 +284,7 @@ BFP_API int bfp_fft_forward(
             d_fp8_re, d_fp8_im, d_work_re, d_work_im,
             d_stage_max_bits + s + 1,  // per-stage max output
             d_stages_exp, s,           // read shared_exp from previous stage
-            step, N);
+            step, N, 0);
         CHECK_CUDA(cudaGetLastError());
 
         // Kernel 2: compute exponent from max + requantize → FP8
@@ -292,6 +308,128 @@ BFP_API int bfp_fft_forward(
         d_fp8_re, d_fp8_im, d_work_re, d_work_im,
         d_stages_exp, log2N,  // read final exponent from device
         N);
+    CHECK_CUDA(cudaGetLastError());
+
+    CHECK_CUDA(cudaMemcpy(X_real, d_work_re, N * sizeof(float),
+                           cudaMemcpyDeviceToHost));
+    CHECK_CUDA(cudaMemcpy(X_imag, d_work_im, N * sizeof(float),
+                           cudaMemcpyDeviceToHost));
+
+    // ── 5. Cleanup ──────────────────────────────────────────────────
+    CHECK_CUDA(cudaFree(d_fp8_re));
+    CHECK_CUDA(cudaFree(d_fp8_im));
+    CHECK_CUDA(cudaFree(d_work_re));
+    CHECK_CUDA(cudaFree(d_work_im));
+    CHECK_CUDA(cudaFree(d_stage_max_bits));
+    CHECK_CUDA(cudaFree(d_stages_exp));
+
+    return 0;
+}
+
+// ─── Host: Full BFP inverse FFT ────────────────────────────────────────
+
+BFP_API int bfp_fft_inverse(
+    const float* x_real, const float* x_imag,
+    float* X_real, float* X_imag,
+    int N,
+    int* stages_exp
+) {
+    if (N < 2 || (N & (N - 1)) != 0) {
+        std::fprintf(stderr, "bfp_fft_inverse: N=%d must be power of 2 and >= 2\n", N);
+        return -1;
+    }
+    int log2N = 0;
+    for (int t = N; t > 1; t >>= 1) log2N++;
+
+    // ── 1. Bit-reverse + initial quantization on host ─────────────────
+    std::vector<__nv_fp8_e4m3> h_fp8_re(N), h_fp8_im(N);
+
+    // Compute initial shared exponent from (bit-reversed) input
+    float max_abs = 0.0f;
+    for (int i = 0; i < N; i++) {
+        int rev = bit_reverse(i, log2N);
+        float a = fabsf(x_real[rev]);
+        float b = fabsf(x_imag[rev]);
+        if (a > max_abs) max_abs = a;
+        if (b > max_abs) max_abs = b;
+    }
+    int E_cur = compute_exponent_from_max(max_abs);
+    stages_exp[0] = E_cur;
+
+    float init_scale = exp2f(-(float)E_cur);
+    for (int i = 0; i < N; i++) {
+        int rev = bit_reverse(i, log2N);
+        h_fp8_re[i] = float_to_fp8(x_real[rev] * init_scale);
+        h_fp8_im[i] = float_to_fp8(x_imag[rev] * init_scale);
+    }
+
+    // ── 2. Allocate device memory ────────────────────────────────────
+    __nv_fp8_e4m3 *d_fp8_re, *d_fp8_im;
+    float *d_work_re, *d_work_im;
+    unsigned int *d_stage_max_bits;
+    int *d_stages_exp;
+
+    CHECK_CUDA(cudaMalloc(&d_fp8_re, N * sizeof(__nv_fp8_e4m3)));
+    CHECK_CUDA(cudaMalloc(&d_fp8_im, N * sizeof(__nv_fp8_e4m3)));
+    CHECK_CUDA(cudaMalloc(&d_work_re, N * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&d_work_im, N * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&d_stage_max_bits, (log2N + 1) * sizeof(unsigned int)));
+    CHECK_CUDA(cudaMalloc(&d_stages_exp, (log2N + 1) * sizeof(int)));
+
+    // Zero-initialize per-stage max bits and exponents
+    CHECK_CUDA(cudaMemset(d_stage_max_bits, 0, (log2N + 1) * sizeof(unsigned int)));
+    CHECK_CUDA(cudaMemset(d_stages_exp, 0, (log2N + 1) * sizeof(int)));
+
+    CHECK_CUDA(cudaMemcpy(d_fp8_re, h_fp8_re.data(),
+                           N * sizeof(__nv_fp8_e4m3), cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(d_fp8_im, h_fp8_im.data(),
+                           N * sizeof(__nv_fp8_e4m3), cudaMemcpyHostToDevice));
+
+    // Write initial exponent (stage 0) to device
+    int host_E0 = E_cur;
+    CHECK_CUDA(cudaMemcpy(d_stages_exp, &host_E0, sizeof(int),
+                           cudaMemcpyHostToDevice));
+
+    int grid_pairs = (N / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    int grid_full  = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    // ── 3. Stage-by-stage butterfly (all GPU, no host sync) ──────────
+    for (int s = 0; s < log2N; s++) {
+        int step = 1 << s;
+
+        // Kernel 1: dequant → butterfly → float workspace + atomicMax
+        bfp_fft_dit_stage<<<grid_pairs, BLOCK_SIZE>>>(
+            d_fp8_re, d_fp8_im, d_work_re, d_work_im,
+            d_stage_max_bits + s + 1,  // per-stage max output
+            d_stages_exp, s,           // read shared_exp from previous stage
+            step, N, 1);               // inverse=1
+        CHECK_CUDA(cudaGetLastError());
+
+        // Kernel 2: compute exponent from max + requantize → FP8
+        bfp_requantize<<<grid_full, BLOCK_SIZE>>>(
+            d_work_re, d_work_im, d_fp8_re, d_fp8_im,
+            d_stage_max_bits + s + 1,  // read per-stage max
+            d_stages_exp, s + 1,       // write computed exponent
+            N);
+        CHECK_CUDA(cudaGetLastError());
+    }
+
+    // Single sync after all stages — catches any accumulated kernel errors
+    CHECK_CUDA(cudaDeviceSynchronize());
+
+    // Retrieve exponents from device
+    CHECK_CUDA(cudaMemcpy(stages_exp, d_stages_exp, (log2N + 1) * sizeof(int),
+                           cudaMemcpyDeviceToHost));
+
+    // ── 4. Final dequantize → float output + scale by 1/N ────────────
+    bfp_dequant_output<<<grid_full, BLOCK_SIZE>>>(
+        d_fp8_re, d_fp8_im, d_work_re, d_work_im,
+        d_stages_exp, log2N,  // read final exponent from device
+        N);
+    CHECK_CUDA(cudaGetLastError());
+
+    bfp_scale_output<<<grid_full, BLOCK_SIZE>>>(
+        d_work_re, d_work_im, N);
     CHECK_CUDA(cudaGetLastError());
 
     CHECK_CUDA(cudaMemcpy(X_real, d_work_re, N * sizeof(float),
@@ -494,7 +632,7 @@ static double run_bfp_gpu_benchmark(int N, int warmup, int reps, int batch) {
                 bfp_fft_dit_stage<<<grid_pairs, BLOCK_SIZE>>>(
                     d_fp8_re, d_fp8_im, d_work_re, d_work_im,
                     d_stage_max_bits + s + 1,
-                    d_stages_exp, s, step, N);
+                    d_stages_exp, s, step, N, 0);
                 CHECK_CUDA(cudaGetLastError());
 
                 bfp_requantize<<<grid_full, BLOCK_SIZE>>>(
@@ -671,6 +809,36 @@ int main(int argc, char** argv) {
         }
         std::printf("  %-6d  %-12s  %8.1f dB   %.4e\n",
                     N, "random", sqnr_rand, max_err);
+
+        // Test signal 3: roundtrip (FFT → IFFT)
+        std::vector<float> rt_re(N), rt_im(N);
+        std::vector<int> ifft_exp(log2N + 1);
+        std::vector<float> bfp_fft_re(N), bfp_fft_im(N);
+
+        // Forward FFT first
+        bfp_fft_forward(x_re.data(), x_im.data(),
+                        bfp_fft_re.data(), bfp_fft_im.data(),
+                        N, stages_exp.data());
+
+        // Then inverse FFT
+        ret = bfp_fft_inverse(bfp_fft_re.data(), bfp_fft_im.data(),
+                              rt_re.data(), rt_im.data(),
+                              N, ifft_exp.data());
+        if (ret != 0) {
+            std::printf("  %-6d  %-12s  ERROR\n", N, "roundtrip");
+            break;
+        }
+        double sqnr_rt = bfp_compute_sqnr(x_re.data(), x_im.data(),
+                                           rt_re.data(), rt_im.data(), N);
+        max_err = 0.0;
+        for (int i = 0; i < N; i++) {
+            double dr = x_re[i] - rt_re[i];
+            double di = x_im[i] - rt_im[i];
+            double e = sqrt(dr*dr + di*di);
+            if (e > max_err) max_err = e;
+        }
+        std::printf("  %-6d  %-12s  %8.1f dB   %.4e\n",
+                    N, "roundtrip", sqnr_rt, max_err);
     }
 
     std::printf("# Done.\n");
