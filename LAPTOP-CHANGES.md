@@ -457,3 +457,34 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - `build/bfp_fft.exe` — 编译后的可执行文件
 - `tests/test_bfp_cuda.py` — Python测试套件 (14 tests)
 - TODO.md: 3.3 → [x]
+
+## 2026-06-04 (续 7): Sprint 3.3 审查修复 — 消除 device sync + twiddle 文档
+
+### MAJOR — 消除 per-stage GPU↔Host 同步 ✅
+
+- [x] 将 exponent 计算从 host 移入 GPU，消除 per-stage `cudaDeviceSynchronize()` + `cudaMemcpy(D2H)`
+- [x] 方案：
+  - `bfp_fft_dit_stage`: 从 device memory `d_stages_exp[stage]` 读取 shared_exp，输出 atomicMax 到 `d_stage_max_bits[stage+1]`
+  - `bfp_requantize`: thread 0 从 `d_stage_max_bits[stage+1]` 读取 max，调用 `compute_exponent_from_max_device()`，写入 `d_stages_exp[stage+1]`，`__syncthreads()` 后所有线程 requantize
+  - `bfp_dequant_output`: 从 `d_stages_exp[log2N]` 读取 final exponent
+  - 循环外单次 `cudaDeviceSynchronize()` + `cudaMemcpy(d_stages_exp → host)`
+- [x] 验证：
+  - `bfp_fft_forward()` 循环体内 zero `cudaDeviceSynchronize()` / `cudaMemcpy(DeviceToHost)`
+  - 14 个 CUDA pytest 全部通过
+  - 17 个 Python BFP pytest 全部通过
+  - SQNR 完全不变（bit-exact 匹配）:
+    | N    | Before | After |
+    |------|--------|-------|
+    | 256  | 21.8   | 21.8  |
+    | 512  | 21.7   | 21.7  |
+    | 1024 | 20.9   | 20.9  |
+    | 2048 | 20.7   | 20.7  |
+    | 4096 | 20.2   | 20.2  |
+
+### MINOR — twiddle 精度差异文档化 ✅
+
+- **差异**: CUDA kernel 使用 `cosf/sinf`（float32 精度）计算 twiddle 因子；Python BFP 原型使用 NumPy `exp(-2j*pi/N)` 生成 twiddle，且 twiddle 本身不经过 FP8 量化（twiddle 不被重新量化，只是参与 float64 算术）
+  - 实际上 Python 原型的 twiddle 是在 float64 精度计算的，不是 FP8
+  - CUDA 使用 float32 twiddle → CUDA SQNR 比 Python 略高 0.5-1.1 dB
+- **工程判断**: float twiddle 是正确的选择 — twiddle 因子不需要 FP8 量化，因为它们不存储在 BFP 格式中，仅在 butterfly 计算时使用
+- **无需修改代码**，仅记录此差异以便未来分析时参考
