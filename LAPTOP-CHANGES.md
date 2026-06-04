@@ -1,5 +1,62 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-04: Bergach 2026 Reproduction — NVIDIA Platform Verification
+
+### Experiment 1 — FP16 BFP FFT SQNR ✅
+
+- [x] Implemented Bergach fixed-shift 1/N BFP scheme (conjugate trick: `conj(X)/N → FFT → conj`)
+- [x] Measured SQNR for N=1024, 4096 (200 trials each) via cuFFT FP16 extension
+- [x] Results:
+  - N=1024: 57.1 +/- 0.2 dB — MATCHES paper's 56-61 dB claim
+  - N=4096: 53.4 +/- 0.1 dB — Slightly below (within 3 dB)
+- [x] BFP trick shows no improvement over standard cuFFT FP16 IFFT:
+  - cuFFT uses FP32 accumulators internally → already prevents overflow
+  - Bergach trick is useful for CUSTOM kernels, not cuFFT library
+- [x] Report: `experiments/bergach-repro/fp16-bfp-sqnr.md`
+- [x] Data: `experiments/bergach-repro/fp16_bfp_N{1024,4096}.csv`
+- [x] Summary: `experiments/bergach-repro/fp16_bfp_data.csv`
+
+### Experiment 2 — FP8 FFT SQNR Collapse ✅
+
+- [x] Compiled `src/cuda/fp8_verification.cu` → `build/fp8_verification.exe`
+  - Used MSVC cl.exe in PATH (not VS Dev Prompt) for compilation
+  - SM_120, CUDA 13.3, MSVC 14.50
+- [x] GPU hardware FP8 FFT results (N=256, native `__nv_fp8_e4m3`):
+  - Chirp: 2.8 dB SQNR
+  - Multitone: 15.8 dB SQNR (MATCHES paper's 14-20 dB)
+  - Average: 9.3 dB
+- [x] Python FP8 simulation results (N=256, 512, 1024, all signal types):
+  - ~0 dB SQNR across the board (worst-case: quantizes EVERY arithmetic op)
+- [x] FP8 collapse to <= 16 dB CONFIRMED on NVIDIA
+- [x] Report: `experiments/bergach-repro/fp8-collapse.md`
+- [x] Data: `experiments/bergach-repro/fp8_collapse_data.csv`
+
+### Documentation Updates ✅
+
+- [x] Updated `paper-notes/2605.28451-analysis.md` with Section 7 (NVIDIA Verification)
+- [x] Updated Phase 3 guidance based on experimental results
+- [x] Implementation plan: `docs/superpowers/plans/2026-06-04-bergach-repro.md`
+
+### Key Conclusions
+
+1. **Bergach's 56-61 dB FP16 BFP claim is REPRODUCIBLE** on NVIDIA at N=1024 (exact match)
+2. **FP8 FFT collapse is CONFIRMED** — BFP or precision-recovery techniques REQUIRED for FP8
+3. **cuFFT handles FP16 precision internally** — custom BFP kernel focus should be on FP8
+4. **Python simulation is pessimistic** (~0 dB vs hardware ~9 dB) — use hardware for final validation
+
+### Output Files
+
+- `experiments/bergach-repro/fp16-bfp-sqnr.md` — Experiment 1 report
+- `experiments/bergach-repro/fp16_bfp_sqnr.py` — Experiment 1 script
+- `experiments/bergach-repro/fp16_bfp_data.csv` — Experiment 1 summary data
+- `experiments/bergach-repro/fp16_bfp_N1024.csv` — N=1024 raw data (200 trials)
+- `experiments/bergach-repro/fp16_bfp_N4096.csv` — N=4096 raw data (200 trials)
+- `experiments/bergach-repro/fp8-collapse.md` — Experiment 2 report
+- `experiments/bergach-repro/fp8_collapse.py` — Experiment 2 script
+- `experiments/bergach-repro/fp8_collapse_data.csv` — Experiment 2 data
+- `paper-notes/2605.28451-analysis.md` — Updated with Section 7
+- `docs/superpowers/plans/2026-06-04-bergach-repro.md` — Implementation plan
+
 ## 2026-06-02: Phase 1 — 环境 & 验证
 
 ### 1.3 FP32 vs FP16 cuFFT 基准测试 ✅
