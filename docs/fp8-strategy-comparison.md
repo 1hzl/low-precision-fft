@@ -1,7 +1,8 @@
 # FP8 FFT 三种候选方案对比分析
 
-> Phase 3 Sprint 3.1c — 方案可行性评估 + 推荐方案
-> 前置: `docs/fp8-e4m3-basics.md`, `docs/fp8-fft-error-model.md`
+> Phase 3 Sprint 3.1d — 方案可行性评估 + 推荐方案（含论文验证）
+> 前置: `docs/fp8-e4m3-basics.md`, `docs/fp8-fft-error-model.md`, `paper-notes/2605.28451-analysis.md`
+> 更新: 2026-06-04 — 整合 arXiv 2605.28451 (Bergach 2026) 的实证结论
 
 ---
 
@@ -9,7 +10,23 @@
 
 cuFFT 不支持 FP8，需要自研 CUDA kernel。根据 FFT 蝶形运算的结构特性和 FP8 E4M3 的表示能力（max=448, mantissa=3bit），评估三种候选方案。
 
+**关键背景** (来自 Bergach 2026):
+- FP16 BFP FFT 在 Apple M1 上达到 **56-61 dB SQNR**，2.2× 加速
+- FP8 崩塌到 **14-20 dB SQNR**，无法实用
+- Fixed-shift BFP (1/N 缩放) 仅需 2 行代码，无需逐层动态指数
+- 论文已验证: FFT 的瓶颈是**动态范围**（指数位数），而非**尾数精度**
+
 ---
+
+## 论文验证 (Bergach 2026)
+
+| 论文结论 | 我们的方案 | 一致性 |
+|---------|-----------|--------|
+| FP16 BFP: 56-61 dB SQNR, 2.2× 加速 | 方案A (BFP): 理论预测 SNR ~8-19 dB for FP8 | ✅ 方向一致: BFP 是正确的 |
+| Fixed-shift 1/N 缩放足够 | 方案A: 曾考虑逐层动态指数 | ⚠️ 可简化: 论文证明单次缩放足够 |
+| FP8 崩塌到 14-20 dB | 方案A-B: FP8 目标 | ⚠️ FP8 实用性受限 |
+| 瓶颈是范围而非精度 | 方案A: 共享指数解决范围问题 | ✅ 理论一致 |
+| Apple M1 2.2× 加速 | 方案A-C: GPU 加速预期 | ❓ 需 NVIDIA 实测 |
 
 ## 详细对比
 
@@ -214,3 +231,17 @@ Phase 3.4: BFP FFT — 调优
 - Welch, P.D. (1969). "A fixed-point fast Fourier transform error analysis." *IEEE Trans. Audio Electroacoust.*, 17(2), 151-157.
 - Constantinides, G.A. et al. (2004). "Numerical data representations for FPGA-based signal processing." *IEEE Trans. VLSI*.
 - Micikevicius, P. et al. (2022). "FP8 Formats for Deep Learning." arXiv:2209.05433.
+- Bergach, M.A. (2026). "Range, Not Precision: Block-Floating-Point Half-Precision FFT and SAR Imaging on Apple Silicon." arXiv:2605.28451.
+- NVIDIA Blackwell Architecture Whitepaper (2024).
+
+---
+
+## Bottom Line (Post-Bergach 2026)
+
+| Question | Answer |
+|----------|--------|
+| Is FP8 FFT practical? | **No** — 14-20 dB SQNR per Bergach 2026, confirmed by our simulation |
+| Is BFP the right approach? | **Yes** — validated by paper (FP16 BFP: 56-61 dB) |
+| Should we build FP8 BFP FFT? | **As research exploration only** — target: prove/disprove > 20 dB is possible |
+| What's the practical recommendation? | **FP16 BFP FFT first** (proven), then FP8 BFP as research extension |
+| What's simplest to implement? | **Fixed-shift BFP (1/N)** — paper proves single-scale works for convolution pipelines |
