@@ -337,3 +337,83 @@ class TestRoundtrip:
         r = IFFTFP16.apply(f)
         r.real.sum().backward()
         assert torch.isfinite(x.grad).all()
+
+
+class TestPlanCacheEviction:
+    """Stress-test plan cache: 65+ unique (n, batch) combos must not crash.
+
+    Bug: the LRU eviction used to flush *after* inserting the new entry,
+    destroying the plan it was about to return.  Fixed by evicting *before*
+    insertion so the new entry survives.
+    """
+
+    @pytest.fixture(scope="class")
+    def device(self):
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        return torch.device("cuda")
+
+    def test_many_unique_sizes_no_crash(self, device):
+        """Create 70 unique (n, batch) combos — must exceed kMaxCacheEntries=64."""
+        import lowp_fft
+
+        torch.manual_seed(42)
+        results = []
+        for i in range(70):
+            n = 8 + i              # unique n per iteration
+            batch = 1 + (i % 5)    # vary batch too
+            x = torch.randn(batch, n, 2, dtype=torch.float32, device=device)
+            xc = torch.view_as_complex(x).to(torch.complex32)
+            y = lowp_fft.fft(xc, precision="fp16")
+            results.append(y)
+
+        assert len(results) == 70
+        for y in results:
+            assert torch.isfinite(y.real).all()
+            assert torch.isfinite(y.imag).all()
+
+    def test_eviction_does_not_corrupt_plan(self, device):
+        """After eviction, the returned plan must still be valid for execution."""
+        import lowp_fft
+
+        torch.manual_seed(123)
+        # Run 100 different sizes, evicting mid-way
+        for i in range(100):
+            n = 16 + (i * 7) % 128  # varied sizes
+            batch = max(1, i % 8)
+            x = torch.randn(batch, n, 2, dtype=torch.float32, device=device)
+            xc = torch.view_as_complex(x).to(torch.complex32)
+            y = lowp_fft.fft(xc, precision="fp16")
+            # Every result must be finite — a stale/destroyed plan would
+            # produce garbage or crash.
+            assert y.shape == (batch, n)
+            assert torch.isfinite(y.real).all(), f"non-finite at i={i}"
+            assert torch.isfinite(y.imag).all(), f"non-finite at i={i}"
+
+
+class TestInvalidNormWarning:
+    """Invalid norm mode must trigger a UserWarning before fallback."""
+
+    @pytest.fixture(scope="class")
+    def device(self):
+        if not torch.cuda.is_available():
+            pytest.skip("CUDA not available")
+        return torch.device("cuda")
+
+    def test_invalid_norm_warns_fft(self, device):
+        """fft() with norm='bogus' must warn before falling back (torch.fft also rejects)."""
+        import lowp_fft
+
+        x = torch.randn(64, dtype=torch.complex64, device=device)
+        with pytest.warns(UserWarning, match="bogus"):
+            with pytest.raises(RuntimeError, match="Invalid normalization"):
+                lowp_fft.fft(x, precision="fp16", norm="bogus")
+
+    def test_invalid_norm_warns_ifft(self, device):
+        """ifft() with norm='bogus' must warn before falling back."""
+        import lowp_fft
+
+        x = torch.randn(64, dtype=torch.complex64, device=device)
+        with pytest.warns(UserWarning, match="bogus"):
+            with pytest.raises(RuntimeError, match="Invalid normalization"):
+                lowp_fft.ifft(x, precision="fp16", norm="bogus")
