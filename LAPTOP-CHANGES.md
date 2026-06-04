@@ -574,3 +574,25 @@ Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
 - `src/cuda/bfp_fft.cu` — 更新（添加 GPU benchmark 函数）
 - TODO.md: 3.4 → [x]
 - LAPTOP-CHANGES.md: Sprint 3.4 总结
+
+## 2026-06-04 (续 9): Sprint 3.4 审查修复 — SQNR 精度 + 多余 sync 移除 ✅
+
+### MINOR 1 — 报告精度值保留一位小数 ✅
+
+- [x] `docs/sprint-3.4-final-report.md` 精度汇总表 BFP 行改为一位小数：
+  - Before: 22, 22, 21, 21, 20 (取整，丢失衰减趋势)
+  - After: 21.8, 21.7, 20.9, 20.7, 20.2 (保留平缓衰减)
+- [x] 对应分析文字中的 22→20 dB 也更新为精确值匹配
+
+### MINOR 2 — bench 函数去掉多余 sync ✅
+
+- [x] `src/cuda/bfp_fft.cu` 的 `run_bfp_gpu_benchmark` 中移除不必要的 `cudaDeviceSynchronize()`
+  - 位于 stage 循环和 dequant kernel 之间
+  - 所有 kernel 在 default stream 上顺序执行，无需显式 sync
+  - `cudaEventRecord(ev_stop)` 已正确捕获 dequant 完成
+
+### 验收
+
+- [x] `build_bfp.bat` 重编译通过 (nvcc -arch=sm_120)
+- [x] 14 个 pytest 全部通过 (6.29s)
+- [x] 精度值格式正确（一位小数）
