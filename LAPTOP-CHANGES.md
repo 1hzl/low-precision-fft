@@ -596,3 +596,78 @@ Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
 - [x] `build_bfp.bat` 重编译通过 (nvcc -arch=sm_120)
 - [x] 14 个 pytest 全部通过 (6.29s)
 - [x] 精度值格式正确（一位小数）
+
+## 2026-06-05: Sprint 4.1 补完 — BF16 测试 + 验证 + 编译
+
+### 编译 BF16 扩展
+
+- [x] `build_bf16.bat` 更新：添加 `DISTUTILS_USE_SDK=1`（修复 MSVC ABI 检查）
+- [x] `build_ext.py` 更新：添加 `libraries=["cufft"]`（修复链接器找不到 cufft.lib）
+- [x] `build_ext.py` 更新：添加 `-Xcompiler /Zc:preprocessor`（修复 CUDA 13.3 CCCL 兼容性）
+- [x] nvcc 编译 + 链接成功，BF16 符号确认：
+  - `_cufft_ext.fft_bf16_forward` ✅
+  - `_cufft_ext.ifft_bf16_forward` ✅
+- [x] cuFFT BF16 使用 `CUDA_C_16BF` 类型（complex as pair of nv_bfloat16）
+
+### 修复 autograd conjugate bug
+
+- [x] `lowp_fft/_autograd.py`: `grad.conj()` → `grad.conj().resolve_conj()`
+  - PyTorch 2.x 的 conj tensor 在 `view_as_real` 前必须先 resolve
+  - 影响 FFTBF16 + IFFTBF16 的 backward 路径
+
+### 测试套件: `tests/test_bf16.py`
+
+34 passed, 2 skipped, 0 failed:
+
+**Test 1 — Forward Correctness (SQNR vs FP32):**
+| N    | Random | Multitone | Chirp |
+|------|--------|-----------|-------|
+| 256  | 52.6 dB| 49.5 dB   | 41.8 dB|
+| 512  | 52.7 dB| —         | —     |
+| 1024 | 52.6 dB| 52.4 dB   | 48.2 dB|
+| 2048 | 52.5 dB| —         | —     |
+| 4096 | 52.6 dB| 52.5 dB   | 51.7 dB|
+
+- All N pass SQNR > 45 dB (random/multitone) or > 40 dB (chirp)
+- BF16 SQNR ≈ 52.6 dB, very close to FP16's 56-61 dB
+- Remarkably consistent across N (no SQNR degradation with larger FFT)
+
+**Test 2 — Roundtrip (FFT → IFFT):**
+- N=256-4096: max abs_err < 0.02 (normalized input)
+- Impulse roundtrip: max abs_err < 0.01
+
+**Test 3 — Autograd:**
+- [x] backward_shape (FFT + IFFT): PASSED
+- [x] gradient_vs_fp32 (cosine similarity > 0.99): PASSED
+- [x] gradcheck: SKIPPED (same policy as FP16 — low-precision finite differences too noisy)
+
+**Test 4 — Throughput (single FFT, GPU time):**
+| N    | FP32(us) | FP16(us) | BF16(us) | BF16/FP16 |
+|------|----------|----------|----------|-----------|
+| 256  | 14.86    | 25.27    | 50.69    | 2.01×     |
+| 512  | 15.71    | 32.35    | 43.78    | 1.35×     |
+| 1024 | 10.82    | 24.71    | 50.95    | 2.06×     |
+| 2048 | 11.57    | 25.70    | 48.00    | 1.87×     |
+| 4096 | 10.14    | 26.20    | 53.80    | 2.05×     |
+
+- BF16 path adds ~2x overhead vs FP16 due to:
+  - `complex64 → view_as_real → bfloat16` conversion on input
+  - `bfloat16 → float32 → view_as_complex` conversion on output
+  - FP16 uses native complex32 format (no conversion needed)
+- BF16 single FFT latency: 44-54 us (N=256-4096)
+
+### 关键发现
+
+1. **BF16 精度几乎等同 FP16**: SQNR 52.6 dB vs FP16's 56-61 dB — 差距仅 3-8 dB
+2. **SQNR 不随 N 衰减**: 与 FP16 不同，BF16 SQNR 在 N=256→4096 保持 52.5-52.6 dB
+   - 原因: BF16 的 8-bit 指数提供更好的动态范围，避免累积舍入误差
+3. **BF16 适合 LLM 训练/推理**: 与主流训练格式一致，无需额外精度转换
+4. **吞吐量 ~2x 慢于 FP16**: 主要损失在 bfloat16 ↔ float32 类型转换
+
+### 输出文件
+
+- `tests/test_bf16.py` — BF16 测试套件 (36 tests, 34 pass + 2 skip)
+- `build_bf16.bat` — 更新（添加 DISTUTILS_USE_SDK=1）
+- `build_ext.py` — 更新（添加 cufft.lib + /Zc:preprocessor）
+- `lowp_fft/_autograd.py` — 修复（resolve_conj）
+- `lowp_fft/_cufft_ext.cp314-win_amd64.pyd` — 重新编译（含 BF16 符号）

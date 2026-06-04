@@ -26,3 +26,8 @@
 - [x] 3.3 块浮点 FFT — CUDA kernel v0
 - [x] 3.3 审查修复 — 消除 device sync + twiddle 差异文档
 - [x] 3.4 精度-性能调优 & 最终报告
+
+## Phase 4: BF16 cuFFT 集成
+
+- [x] 4.1 BF16 测试 + 编译验证 + LAPTOP-CHANGES
+
