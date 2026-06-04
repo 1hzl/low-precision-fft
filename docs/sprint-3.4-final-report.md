@@ -15,7 +15,7 @@ Values reported for random normal input (most representative signal type).
 |--------|-------|-------|--------|--------|--------|
 | cuFFT FP32 (complex64) | 138 dB | 136 dB | 135 dB | 136 dB | 135 dB |
 | cuFFT FP16 (complex32) | 61 dB | 61 dB | 60 dB | 60 dB | 57 dB |
-| **BFP FP8 (CUDA v0)** | **22 dB** | **22 dB** | **21 dB** | **21 dB** | **20 dB** |
+| **BFP FP8 (CUDA v0)** | **21.8 dB** | **21.7 dB** | **20.9 dB** | **20.7 dB** | **20.2 dB** |
 | Naive FP8 (every-op quantize) | ~0 dB | ~0 dB | ~0 dB | ~0 dB | ~0 dB |
 | FP8 Hardware (naive) | 9 dB | — | — | — | — |
 

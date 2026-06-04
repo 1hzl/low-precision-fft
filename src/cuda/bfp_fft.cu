@@ -504,8 +504,6 @@ static double run_bfp_gpu_benchmark(int N, int warmup, int reps, int batch) {
                 CHECK_CUDA(cudaGetLastError());
             }
 
-            CHECK_CUDA(cudaDeviceSynchronize());
-
             bfp_dequant_output<<<grid_full, BLOCK_SIZE>>>(
                 d_fp8_re, d_fp8_im, d_work_re, d_work_im,
                 d_stages_exp, log2N, N);
