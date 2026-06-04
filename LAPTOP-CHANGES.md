@@ -213,3 +213,43 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - `docs/fp8-strategy-comparison.md`
 - `tests/sim_fp8_fft_error.py`
 - TODO.md 已更新: 3.1a → [x], 3.1b → [x], 3.1c → [x]
+
+## 2026-06-04 (续 3): Phase 3 Sprint 3.1 — 论文整合 + CUDA FP8 验证
+
+### 3.1a — 论文研读 2605.28451 (Bergach 2026) ✅
+
+- 文档: `paper-notes/2605.28451-analysis.md` (详细读后分析)
+- 可直接复用的结论:
+  1. BFP Fixed-shift (1/N) 调度已验证可行
+  2. FP16 是今天的 FFT 精度下限 (56-61 dB SQNR)
+  3. BFP 存储效率极大化
+- 需 NVIDIA 平台验证的:
+  1. Apple M1 的 2.2× 加速在 CUDA 上的对应值
+  2. "2 行代码" 方案在通用 FFT 场景的适用性
+  3. FP8 崩塌阈值在 Blackwell SM_120 上的实际表现
+  4. BFP per-stage reduction 在 GPU 上的开销
+  5. GPU 内存带宽 vs 统一内存的差异
+
+### 3.1d — 策略对比更新 ✅
+
+- `docs/fp8-strategy-comparison.md` 新增:
+  - "论文验证" 对比表 — 逐项 mapping Bergach 结论到候选方案
+  - "Bottom Line" 决策表 — FP8 是研究探索, FP16 BFP 先做
+  - 新增 Bergach 2026 和 NVIDIA Blackwell 引用
+
+### 3.1e — NVIDIA RTX 5070 Ti FP8 验证 ✅
+
+- `src/cuda/fp8_verification.cu` — 完整 CUDA 验证程序 (3 个测试):
+  1. **Roundtrip 精度**: 1M 值 log-uniform over FP8 范围 [2^-9, 448]，验证 ±6.25% 理论误差
+  2. **Load/Store 操作**: 基础 `__nv_fp8_e4m3` 类型往返
+  3. **N=256 Naive FP8 FFT**: Chirp + Multitone 信号，测 SQNR vs Bergach 论文的 14-20 dB
+- `build_fp8.bat` — 编译脚本 (需 VS Developer Command Prompt)
+- ⚠️ 未编译 — MSVC cl.exe 不在当前 PATH (Git Bash)
+  - 编译: 从 VS Developer Command Prompt 运行 `build_fp8.bat`
+  - 或: `nvcc -arch=sm_120 -O3 -o build/fp8_verification.exe src/cuda/fp8_verification.cu`
+
+### TODO.md 更新
+
+- Phase 3 重构为 handshake 任务 ID: 3.1a-3.1e
+- 全部 5 个子任务标记 [x] 完成
+- 3.2 (BFP CPU 原型) 为下一阶段
