@@ -1,23 +1,27 @@
-"""FP16 Forward FFT SQNR -- Bergach 2026 Experiment 1 (Corrected).
+"""FP16/FP32 Forward FFT SQNR -- Bergach 2026 Experiment 1 (Extended).
 
-CORRECTION from v1 fp16_bfp_sqnr.py:
-  - OLD (wrong): measured ROUNDTRIP SQNR (FFT + IFFT) with BFP trick
-  - NEW (correct): measures SINGLE-PASS forward FFT SQNR vs FP64 reference
-    Matches paper §III-A Table I: FP16 Stockham FFT SQNR against
-    double-precision reference, not roundtrip reconstruction.
+v3 extension: full signal/N coverage + FP32 ceiling.
 
-Methodology (aligned with Bergach 2026 §III-A, §IV-B):
-  1. Generate random complex signal x (FP64), max |x_i| = 1
+Signal types:
+  - uniform:   real,imag ~ U(-1,1)
+  - normal:    real,imag ~ N(0,1), clip ±1
+  - multitone: 5 random frequencies, equal amplitude
+  - impulse:   δ[0]=1, else 0
+
+Precision paths:
+  - fp16: lowp_fft.fft(precision="fp16") via cuFFT
+  - fp32: torch.fft.fft (complex64) for ceiling reference
+
+Methodology (Bergach 2026 §III-A, §IV-B):
+  1. Generate random complex signal x (FP64)
   2. Compute reference: X_ref = FFT_FP64(x)
-  3. Compute test:     X_test = FFT_FP16(x_fp32)  via cuFFT FP16 extension
-  4. Align amplitudes:  α = argmin ||X_ref - α·X_test||²  (optimal complex scaling)
+  3. Compute test:     X_test = FFT_target(x)
+  4. Align: α = argmin ||X_ref - α·X_test||²
   5. SQNR = 10·log₁₀(||X_ref||² / ||X_ref - α·X_test||²)
-
-N values: 1024, 4096 (paper Table I)
-Trials: 200 random complex signals each
 """
 
 import csv
+import math
 import os
 import sys
 import time
@@ -30,11 +34,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from lowp_fft import fft as fft_lowp
 
 
-def sqnr_db(ref: torch.Tensor, test: torch.Tensor) -> float:
-    """Signal-to-Quantization-Noise Ratio in dB.
+# ─── SQNR utilities ──────────────────────────────────────────────────────────
 
-    SQNR = 10 * log10(||ref||² / ||ref - test||²)
-    """
+def sqnr_db(ref: torch.Tensor, test: torch.Tensor) -> float:
     test_c128 = test.to(torch.complex128)
     signal_power = ref.abs().pow(2).sum().item()
     error_power = (ref - test_c128).abs().pow(2).sum().item()
@@ -42,15 +44,7 @@ def sqnr_db(ref: torch.Tensor, test: torch.Tensor) -> float:
 
 
 def align_optimal_scale(ref: torch.Tensor, test: torch.Tensor):
-    """Find optimal complex scalar α minimizing ||ref - α·test||².
-
-    Closed-form: α = ⟨ref, test⟩ / ||test||² where ⟨a,b⟩ = sum(a · conj(b)).
-
-    Separates systematic gain/phase offset from random quantization noise
-    (Bergach 2026 §IV-B: "align amplitudes before computing SQNR").
-
-    Returns (aligned_test, alpha) where aligned_test = α · test (complex128).
-    """
+    """Find optimal complex scalar α minimizing ||ref - α·test||²."""
     test_c128 = test.to(torch.complex128)
     inner = (ref * test_c128.conj()).sum()
     norm_test = test_c128.abs().pow(2).sum()
@@ -58,31 +52,65 @@ def align_optimal_scale(ref: torch.Tensor, test: torch.Tensor):
     return alpha * test_c128, complex(alpha.real.item(), alpha.imag.item())
 
 
-def generate_signal(N: int, seed: int, device: str) -> torch.Tensor:
-    """Generate random complex signal in FP64, max |element| = 1.
+# ─── Signal generators ───────────────────────────────────────────────────────
 
-    Uses CPU-side generator for full reproducibility across GPU architectures.
-    """
+def _gen_uniform(N: int, seed: int, device: str) -> torch.Tensor:
     g = torch.Generator(device="cpu")
     g.manual_seed(seed)
     real = torch.rand(N, generator=g, dtype=torch.float64) * 2.0 - 1.0
     imag = torch.rand(N, generator=g, dtype=torch.float64) * 2.0 - 1.0
     x = torch.complex(real, imag)
+    return x.to(device)
+
+
+def _gen_normal(N: int, seed: int, device: str) -> torch.Tensor:
+    g = torch.Generator(device="cpu")
+    g.manual_seed(seed)
+    real = torch.randn(N, generator=g, dtype=torch.float64).clamp(-1.0, 1.0)
+    imag = torch.randn(N, generator=g, dtype=torch.float64).clamp(-1.0, 1.0)
+    return torch.complex(real, imag).to(device)
+
+
+def _gen_multitone(N: int, seed: int, device: str) -> torch.Tensor:
+    g = torch.Generator(device="cpu")
+    g.manual_seed(seed)
+    n_freqs = 5
+    freqs = torch.randint(0, N // 2, (n_freqs,), generator=g)
+    phases = torch.rand(n_freqs, generator=g, dtype=torch.float64) * 2.0 * math.pi
+    x = torch.zeros(N, dtype=torch.complex128)
+    t = torch.arange(N, dtype=torch.float64)
+    for f, phi in zip(freqs.tolist(), phases.tolist()):
+        x += torch.exp(1j * (2.0 * math.pi * f * t / N + phi))
     x = x / x.abs().max().clamp(min=1e-40)
     return x.to(device)
 
 
-def run_trials(N: int, n_trials: int = 200, device: str = "cuda") -> dict:
-    """Run SQNR measurement for a single N value.
+def _gen_impulse(N: int, seed: int, device: str) -> torch.Tensor:
+    x = torch.zeros(N, dtype=torch.complex128)
+    x[0] = 1.0
+    return x.to(device)
 
-    For each trial:
-      1. Generate random complex signal x (FP64)
-      2. X_ref = FP64 FFT(x)          using torch.fft.fft (complex128)
-      3. X_fp16 = FP16 FFT(x_fp32)    using lowp_fft.fft(precision="fp16")
-      4. Compute raw SQNR and aligned SQNR (with optimal α scaling)
-    """
+
+SIGNAL_GENERATORS = {
+    "uniform": _gen_uniform,
+    "normal": _gen_normal,
+    "multitone": _gen_multitone,
+    "impulse": _gen_impulse,
+}
+
+
+def generate_signal(N: int, seed: int, device: str, signal_type: str = "uniform") -> torch.Tensor:
+    return SIGNAL_GENERATORS[signal_type](N, seed, device)
+
+
+# ─── Trial runner ────────────────────────────────────────────────────────────
+
+def run_trials(N: int, n_trials: int = 200, device: str = "cuda",
+               signal_type: str = "uniform", precision: str = "fp16") -> dict:
     results = {
         "N": N,
+        "signal_type": signal_type,
+        "precision": precision,
         "raw_sqnr": [],
         "aligned_sqnr": [],
         "alpha_real": [],
@@ -90,19 +118,22 @@ def run_trials(N: int, n_trials: int = 200, device: str = "cuda") -> dict:
     }
 
     for trial in range(n_trials):
-        seed = trial * 10007 + N
-        x_fp64 = generate_signal(N, seed, device)
+        seed = trial * 10007 + N + hash(signal_type) % 100003
+        x_fp64 = generate_signal(N, seed, device, signal_type)
 
         with torch.no_grad():
             X_ref = torch.fft.fft(x_fp64, norm="backward")
 
-            # cuFFT requires FP32 complex input; converts internally to FP16 compute
-            x_fp32 = x_fp64.to(dtype=torch.complex64)
-            X_fp16 = fft_lowp(x_fp32, precision="fp16")
+            if precision == "fp16":
+                x_fp32 = x_fp64.to(dtype=torch.complex64)
+                X_test = fft_lowp(x_fp32, precision="fp16")
+            elif precision == "fp32":
+                X_test = torch.fft.fft(x_fp64.to(torch.complex64), norm="backward")
+            else:
+                raise ValueError(f"Unknown precision: {precision}")
 
-            raw_snr = sqnr_db(X_ref, X_fp16)
-
-            X_aligned, alpha = align_optimal_scale(X_ref, X_fp16)
+            raw_snr = sqnr_db(X_ref, X_test)
+            X_aligned, alpha = align_optimal_scale(X_ref, X_test)
             aligned_snr = sqnr_db(X_ref, X_aligned)
 
         results["raw_sqnr"].append(raw_snr)
@@ -110,19 +141,21 @@ def run_trials(N: int, n_trials: int = 200, device: str = "cuda") -> dict:
         results["alpha_real"].append(alpha.real)
         results["alpha_imag"].append(alpha.imag)
 
-        if (trial + 1) % 50 == 0:
-            print(f"  {trial + 1}/{n_trials} trials done  "
-                  f"[raw={raw_snr:.1f}, aligned={aligned_snr:.1f} dB, "
-                  f"|α|={abs(alpha):.4f}]")
+        if (trial + 1) % 100 == 0:
+            print(f"  {trial + 1}/{n_trials} done  "
+                  f"[raw={raw_snr:.1f}, aligned={aligned_snr:.1f} dB, |α|={abs(alpha):.4f}]")
 
     return results
 
 
+# ─── Summary ─────────────────────────────────────────────────────────────────
+
 def summarize(results: dict) -> dict:
-    """Compute summary statistics across trials."""
     raw = np.array(results["raw_sqnr"])
     aligned = np.array(results["aligned_sqnr"])
     return {
+        "signal_type": results["signal_type"],
+        "precision": results["precision"],
         "N": results["N"],
         "raw_sqnr_mean": float(np.mean(raw)),
         "raw_sqnr_std": float(np.std(raw)),
@@ -137,6 +170,8 @@ def summarize(results: dict) -> dict:
     }
 
 
+# ─── Main ────────────────────────────────────────────────────────────────────
+
 def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if device != "cuda":
@@ -144,111 +179,158 @@ def main():
         sys.exit(1)
 
     print("=" * 72)
-    print("Bergach 2026 Experiment 1 (Corrected): FP16 Forward FFT SQNR")
+    print("Bergach 2026 Experiment 1 (v3 Extended): FP16/FP32 FFT SQNR")
     print("=" * 72)
     print(f"Device: {torch.cuda.get_device_name(0)}")
-    print(f"Paper claim (§III-A Table I): FP16 FFT mantissa-limited at")
-    print(f"  56-61 dB SQNR (N=1024, 4096, vs double-precision reference)")
-    print(f"Correction: measures forward FFT only (v1 measured roundtrip)")
+    print(f"Paper claim (§III-A Table I): FP16 FFT 56-61 dB SQNR")
     print()
 
-    N_values = [1024, 4096]
+    # ── Run matrix ────────────────────────────────────────────────────────
+    N_all = [256, 512, 1024, 2048, 4096]
+    signals_fp16 = ["uniform", "normal", "multitone", "impulse"]
     n_trials = 200
+
+    # FP32 ceiling: only uniform, 100 trials (smaller since higher precision = lower variance)
+    fp32_cfg = {"signal": "uniform", "N_values": N_all, "n_trials": 100}
+
     all_summaries = []
 
-    for N in N_values:
-        print(f"--- N={N} ({n_trials} trials) ---")
+    # --- FP16 runs: all signals × all N × 200 trials ---
+    for signal_type in signals_fp16:
+        for N in N_all:
+            label = f"FP16 {signal_type} N={N}"
+            print(f"--- {label} ({n_trials} trials) ---")
+            t0 = time.perf_counter()
+            results = run_trials(N, n_trials, device,
+                                signal_type=signal_type, precision="fp16")
+            t1 = time.perf_counter()
+
+            summary = summarize(results)
+            all_summaries.append(summary)
+
+            print(f"  Aligned SQNR: {summary['aligned_sqnr_mean']:.1f}"
+                  f" +/- {summary['aligned_sqnr_std']:.1f} dB")
+            print(f"  Alignment gain: {summary['alignment_gain_db']:+.1f} dB")
+            print(f"  Time: {t1 - t0:.1f}s\n")
+
+            # Save per-N per-config raw data
+            out_dir = "experiments/bergach-repro"
+            os.makedirs(out_dir, exist_ok=True)
+            csv_path = f"{out_dir}/fp16_fft_sqnr_{signal_type}_fp16_N{N}.csv"
+            with open(csv_path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["trial", "signal_type", "precision", "raw_sqnr_db",
+                            "aligned_sqnr_db", "alpha_real", "alpha_imag"])
+                for i in range(n_trials):
+                    w.writerow([
+                        i, signal_type, "fp16",
+                        results["raw_sqnr"][i], results["aligned_sqnr"][i],
+                        results["alpha_real"][i], results["alpha_imag"][i],
+                    ])
+            print(f"  Raw data -> {csv_path}")
+
+    # --- FP32 ceiling: uniform × all N × 100 trials ---
+    cf = fp32_cfg
+    for N in cf["N_values"]:
+        label = f"FP32 {cf['signal']} N={N}"
+        print(f"--- {label} ({cf['n_trials']} trials) [FP32 ceiling] ---")
         t0 = time.perf_counter()
-        results = run_trials(N, n_trials, device)
+        results = run_trials(N, cf["n_trials"], device,
+                            signal_type=cf["signal"], precision="fp32")
         t1 = time.perf_counter()
 
         summary = summarize(results)
         all_summaries.append(summary)
 
-        print(f"  Raw SQNR:          {summary['raw_sqnr_mean']:.1f}"
-              f" +/- {summary['raw_sqnr_std']:.1f} dB")
-        print(f"  Aligned SQNR:      {summary['aligned_sqnr_mean']:.1f}"
+        print(f"  Aligned SQNR: {summary['aligned_sqnr_mean']:.1f}"
               f" +/- {summary['aligned_sqnr_std']:.1f} dB")
-        print(f"  Alignment gain:    {summary['alignment_gain_db']:+.1f} dB")
-        print(f"  Time: {t1 - t0:.1f}s")
-        print()
+        print(f"  Time: {t1 - t0:.1f}s\n")
 
-        # Save per-trial raw data
         out_dir = "experiments/bergach-repro"
-        os.makedirs(out_dir, exist_ok=True)
-        csv_path = f"{out_dir}/fp16_fft_sqnr_N{N}.csv"
+        csv_path = f"{out_dir}/fp16_fft_sqnr_{cf['signal']}_fp32_N{N}.csv"
         with open(csv_path, "w", newline="") as f:
             w = csv.writer(f)
-            w.writerow(["trial", "raw_sqnr_db", "aligned_sqnr_db",
-                        "alpha_real", "alpha_imag"])
-            for i in range(n_trials):
+            w.writerow(["trial", "signal_type", "precision", "raw_sqnr_db",
+                        "aligned_sqnr_db", "alpha_real", "alpha_imag"])
+            for i in range(cf["n_trials"]):
                 w.writerow([
-                    i,
-                    results["raw_sqnr"][i],
-                    results["aligned_sqnr"][i],
-                    results["alpha_real"][i],
-                    results["alpha_imag"][i],
+                    i, cf["signal"], "fp32",
+                    results["raw_sqnr"][i], results["aligned_sqnr"][i],
+                    results["alpha_real"][i], results["alpha_imag"][i],
                 ])
-        print(f"  Raw data -> {csv_path}\n")
+        print(f"  Raw data -> {csv_path}")
 
-    # Summary CSV
+    # ── Comprehensive summary CSV ─────────────────────────────────────────
     summary_path = "experiments/bergach-repro/fp16_fft_sqnr_summary.csv"
     with open(summary_path, "w", newline="") as f:
         w = csv.writer(f)
-        keys = list(all_summaries[0].keys())
+        keys = ["signal_type", "precision", "N", "raw_sqnr_mean", "raw_sqnr_std",
+                "raw_sqnr_min", "raw_sqnr_max", "aligned_sqnr_mean", "aligned_sqnr_std",
+                "aligned_sqnr_min", "aligned_sqnr_max", "alignment_gain_db", "n_trials"]
         w.writerow(keys)
         for s in all_summaries:
             w.writerow([s[k] for k in keys])
     print(f"Summary -> {summary_path}")
 
-    # Paper comparison
+    # ── 4×5 Matrix table (FP16 only) ──────────────────────────────────────
     print()
     print("=" * 72)
-    print("Comparison: cuFFT FP16 Forward FFT SQNR vs Bergach 2026 §III-A")
+    print("FP16 SQNR Matrix: 4 Signal Types × 5 N Values")
     print("=" * 72)
-    header = (f"{'N':>6s}  {'Raw SQNR':>14s}  {'Aligned SQNR':>14s}  "
-              f"{'Paper §III-A':>14s}  {'Verdict':>20s}")
+    summary_by_key = {(s["signal_type"], s["precision"], s["N"]): s for s in all_summaries}
+
+    header = f"{'Signal':>10s}" + "".join(f"{n:>12d}" for n in N_all) + f"{'':>14s}"
     print(header)
-    print("-" * 72)
-    for s in all_summaries:
-        snr = s["aligned_sqnr_mean"]
-        if 56 <= snr <= 61:
-            verdict = "MATCHES paper"
-        elif snr >= 53:
-            verdict = f"CLOSE (within 3 dB)"
-        else:
-            verdict = "BELOW paper"
-        print(f"{s['N']:6d}  {s['raw_sqnr_mean']:13.1f} dB  "
-              f"{s['aligned_sqnr_mean']:13.1f} dB  "
-              f"{'56-61 dB':>14s}  {verdict:>20s}")
-    print("-" * 72)
+    print(f"{'':>10s}" + "".join(f"{'mean ± std':>12s}" for _ in N_all))
+    print("-" * (10 + 12 * len(N_all)))
 
-    # Final verdict
+    for signal_type in signals_fp16:
+        row = f"{signal_type:>10s}"
+        for N in N_all:
+            s = summary_by_key.get((signal_type, "fp16", N))
+            if s:
+                row += f"  {s['aligned_sqnr_mean']:5.1f}±{s['aligned_sqnr_std']:.1f}"
+            else:
+                row += f"{'N/A':>12s}"
+        print(row)
+    print("-" * (10 + 12 * len(N_all)))
+
+    # ── FP32 ceiling table ────────────────────────────────────────────────
     print()
-    aligned_snrs = [s["aligned_sqnr_mean"] for s in all_summaries]
-    if all(56 <= snr <= 61 for snr in aligned_snrs):
-        print("VERDICT: MATCHES paper (56-61 dB) on all sizes")
-    elif all(snr >= 56 for snr in aligned_snrs):
-        print("VERDICT: EXCEEDS paper lower bound (>= 56 dB)")
-    elif all(snr >= 53 for snr in aligned_snrs):
-        print("VERDICT: CLOSE to paper -- within ~3 dB")
-        print("  Difference likely from: cuFFT (Cooley-Tukey) vs paper (Stockham)")
-        print("  and NVIDIA FP16 rounding vs Apple M1 FP16 rounding")
+    print("=" * 72)
+    print("FP32 Ceiling (uniform signal)")
+    print("=" * 72)
+    print(f"{'N':>6s}  {'Aligned SQNR':>16s}  {'Expected':>12s}")
+    print("-" * 40)
+    for N in N_all:
+        s = summary_by_key.get(("uniform", "fp32", N))
+        if s:
+            print(f"{N:6d}  {s['aligned_sqnr_mean']:10.1f} ± {s['aligned_sqnr_std']:.1f} dB"
+                  f"  {'~138 dB':>12s}")
+    print("-" * 40)
+
+    # ── Verdict ───────────────────────────────────────────────────────────
+    print()
+    print("=" * 72)
+    print("Verdict: FP16 FFT SQNR vs Bergach 2026 §III-A (56-61 dB)")
+    print("=" * 72)
+    fp16_snrs = [s for s in all_summaries if s["precision"] == "fp16"]
+    all_in_range = all(56 <= s["aligned_sqnr_mean"] <= 61 for s in fp16_snrs)
+    min_snr = min(s["aligned_sqnr_mean"] for s in fp16_snrs)
+    max_snr = max(s["aligned_sqnr_mean"] for s in fp16_snrs)
+
+    print(f"  FP16 SQNR range across all signals/N: {min_snr:.1f} - {max_snr:.1f} dB")
+    if all_in_range:
+        print("  VERDICT: ALL configurations within 56-61 dB range -- MATCHES paper")
     else:
-        print("VERDICT: DOES NOT MATCH paper -- significantly lower SQNR")
-
-    # Key insight
-    print()
-    print("=" * 72)
-    print("Key Difference from v1 (Incorrect) Experiment")
-    print("=" * 72)
-    print(f"  v1: ROUNDTRIP SQNR = 53.4-57.1 dB  (FFT + IFFT, double penalty)")
-    print(f"  v2: FORWARD SQNR = {aligned_snrs[0]:.0f}-{aligned_snrs[-1]:.0f} dB")
-    print(f"  (FFT only vs FP64 reference)")
-    print()
-    print("The roundtrip includes both FFT and IFFT error, roughly doubling")
-    print("the noise power and reducing SQNR by ~3 dB compared to forward-only.")
-    print("Paper §III-A measures forward FFT only, matching this corrected approach.")
+        borderline = [s for s in fp16_snrs
+                      if not (56 <= s["aligned_sqnr_mean"] <= 61)]
+        for s in borderline:
+            print(f"  BORDERLINE: {s['signal_type']} N={s['N']}: {s['aligned_sqnr_mean']:.1f} dB")
+        if all(s["aligned_sqnr_mean"] >= 53 for s in borderline):
+            print("  VERDICT: CLOSE to paper -- all within ~3 dB of 56 dB lower bound")
+        else:
+            print("  VERDICT: SOME configurations significantly below paper range")
 
 
 if __name__ == "__main__":
