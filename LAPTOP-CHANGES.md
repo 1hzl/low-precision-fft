@@ -409,3 +409,51 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - `tests/test_bfp_fft.py` — 测试套件
 - `data/sprint-3.2-bfp-bench.csv` — 基准数据
 - TODO.md: 3.2 → [x]
+
+## 2026-06-04 (续 6): Sprint 3.3 — BFP FFT CUDA Kernel v0 ✅
+
+### 实现
+
+- [x] `src/cuda/bfp_fft.h` — C API header (`bfp_fft_forward`, `bfp_compute_sqnr`)
+- [x] `src/cuda/bfp_fft.cu` — 3 CUDA kernels + host wrapper:
+  - `bfp_fft_dit_stage`: dequant FP8 → butterfly (float32) → atomicMax for exponent
+  - `bfp_requantize`: float32 → FP8 mantissa + new shared exponent
+  - `bfp_dequant_output`: FP8 → float32 final output
+- [x] `build_bfp.bat` — 编译脚本 (需 VS Developer Command Prompt)
+- [x] nvcc 编译通过 (`-arch=sm_120`, CUDA 13.3, MSVC 19.50)
+- [x] `__nv_fp8_e4m3` 硬件类型替代查表量化
+
+### 基准测试结果 (CUDA BFP vs Python BFP vs Naive FP8)
+
+| N    | CUDA BFP  | Python BFP | Naive FP8 | CUDA-Python Δ |
+|------|-----------|------------|-----------|---------------|
+| 256  | 21.8 dB   | 21.3 dB    | -1.2 dB   | +0.5 dB       |
+| 512  | 21.7 dB   | 20.6 dB    | -4.0 dB   | +1.1 dB       |
+| 1024 | 20.9 dB   | 20.2 dB    | -1.9 dB   | +0.7 dB       |
+| 2048 | 20.7 dB   | 20.0 dB    | ~0.0 dB   | +0.7 dB       |
+| 4096 | 20.2 dB   | 19.7 dB    | ~0.0 dB   | +0.5 dB       |
+
+### 验收
+
+- [x] `src/cuda/bfp_fft.cu` + `bfp_fft.h` 创建
+- [x] `nvcc -arch=sm_120` 编译通过
+- [x] CUDA vs Python BFP 原型 SQNR 一致 (±2 dB): max Δ = +1.1 dB
+- [x] N=256 BFP CUDA SQNR ≥ 15 dB: actual 21.8 dB
+- [x] N=4096 BFP CUDA SQNR = 20.2 dB (Python 19.7 dB)
+- [x] Naive FP8: 崩塌到 ~0 dB (N≥256) — 对比确认 BFP 有效
+- [x] `tests/test_bfp_cuda.py`: 14 tests全部通过 (pytest)
+- [x] All 17 existing BFP Python tests still pass (no regression)
+- [x] `build_bfp.bat` 创建
+
+### 吞吐量 (待测)
+
+- [ ] vs cuFFT FP16 throughput comparison — defer to Sprint 3.4 (profiling)
+
+### 输出文件
+
+- `src/cuda/bfp_fft.cu` — CUDA kernel + host wrapper
+- `src/cuda/bfp_fft.h` — C API header (dllimport/dllexport macros)
+- `build_bfp.bat` — 编译脚本
+- `build/bfp_fft.exe` — 编译后的可执行文件
+- `tests/test_bfp_cuda.py` — Python测试套件 (14 tests)
+- TODO.md: 3.3 → [x]
