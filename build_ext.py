@@ -50,6 +50,7 @@ ext_modules = [
     CUDAExtension(
         name="lowp_fft._cufft_ext",
         sources=["lowp_fft/csrc/cufft_fp16.cu"],
+        libraries=["cufft"],
         extra_compile_args={
             "cxx": ["-O3", "-std=c++17"],
             "nvcc": [
@@ -57,6 +58,7 @@ ext_modules = [
                 "-std=c++17",
                 "-arch=sm_120",
                 "--expt-relaxed-constexpr",
+                "-Xcompiler", "/Zc:preprocessor",
             ],
         },
     ),

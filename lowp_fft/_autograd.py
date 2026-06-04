@@ -71,7 +71,7 @@ class FFTBF16(torch.autograd.Function):
         grad_complex = torch.view_as_complex(grad_output.to(torch.float32))
         grad = grad_complex.conj()
         grad = torch.fft.fft(grad, n=ctx._saved_n, norm="backward")
-        return torch.view_as_real(grad.conj()).to(torch.bfloat16)
+        return torch.view_as_real(grad.conj().resolve_conj()).to(torch.bfloat16)
 
 
 class IFFTBF16(torch.autograd.Function):
@@ -92,4 +92,4 @@ class IFFTBF16(torch.autograd.Function):
         grad_complex = torch.view_as_complex(grad_output.to(torch.float32))
         grad = grad_complex.conj()
         grad = torch.fft.fft(grad, n=ctx._saved_n, norm="backward")
-        return torch.view_as_real(grad.conj()).to(torch.bfloat16)
+        return torch.view_as_real(grad.conj().resolve_conj()).to(torch.bfloat16)
