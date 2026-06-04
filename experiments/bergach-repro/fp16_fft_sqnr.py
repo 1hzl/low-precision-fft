@@ -91,6 +91,8 @@ def _gen_impulse(N: int, seed: int, device: str) -> torch.Tensor:
     return x.to(device)
 
 
+_SIGNAL_SEED_OFFSET = {"uniform": 0, "normal": 1, "multitone": 2, "impulse": 3}
+
 SIGNAL_GENERATORS = {
     "uniform": _gen_uniform,
     "normal": _gen_normal,
@@ -118,7 +120,7 @@ def run_trials(N: int, n_trials: int = 200, device: str = "cuda",
     }
 
     for trial in range(n_trials):
-        seed = trial * 10007 + N + hash(signal_type) % 100003
+        seed = trial * 10007 + N + _SIGNAL_SEED_OFFSET[signal_type] * 100003
         x_fp64 = generate_signal(N, seed, device, signal_type)
 
         with torch.no_grad():
