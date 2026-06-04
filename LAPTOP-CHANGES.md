@@ -325,3 +325,54 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - Phase 3 重构为 handshake 任务 ID: 3.1a-3.1e
 - 全部 5 个子任务标记 [x] 完成
 - 3.2 (BFP CPU 原型) 为下一阶段
+
+## 2026-06-04 (续 4): 复现补充 — 补全信号/N覆盖 + FP32 ceiling ✅
+
+### 补充 1 — 3 新信号 × 5 N × 200 trials ✅
+
+扩展 `experiments/bergach-repro/fp16_fft_sqnr.py` 为 v3：
+
+| 信号 | 256 | 512 | 1024 | 2048 | 4096 |
+|------|-----|-----|------|------|------|
+| **uniform** | 61.3 ± 0.3 | 60.5 ± 0.2 | 59.9 ± 0.1 | 59.3 ± 0.1 | 56.5 ± 0.1 |
+| **normal** | 61.5 ± 0.3 | 60.7 ± 0.2 | 60.1 ± 0.2 | 59.5 ± 0.1 | 56.5 ± 0.1 |
+| **multitone** | 61.5 ± 0.8 | 60.6 ± 0.7 | 60.1 ± 0.7 | 59.4 ± 0.6 | 56.6 ± 0.7 |
+| **impulse** | 424.1 ± 0.0 | 427.1 ± 0.0 | 430.1 ± 0.0 | 433.1 ± 0.0 | 436.1 ± 0.0 |
+
+- [x] uniform 补齐 N=256, 512, 2048 (N=1024, 4096 已有)
+- [x] normal: 5 N × 200 trials
+- [x] multitone: 5 N × 200 trials — 方差略高 (σ≈0.7 dB) 因随机频率位置
+- [x] impulse: 5 N × 200 trials — 退化 case, FP16 精确表示, SQNR ~430 dB
+- [x] 所有真实信号匹配论文 56-61 dB 范围
+
+### 补充 2 — FP32 ceiling ✅
+
+- [x] FP32 torch.fft.fft (complex64) vs FP64 reference
+- [x] uniform × 5 N × 100 trials:
+  - N=256: 137.6 ± 0.3 dB
+  - N=512: 135.8 ± 0.2 dB
+  - N=1024: 135.3 ± 0.2 dB
+  - N=2048: 135.5 ± 0.1 dB
+  - N=4096: 135.1 ± 0.1 dB
+- [x] 全部接近 138 dB 理论极限 (23-bit mantissa)
+
+### 关键发现
+
+1. **信号类型对 SQNR 影响极小**: uniform/normal/multitone 在同一 N 下相差 < 0.2 dB
+2. **N 缩放规律**: 2048→4096 步降 ~3 dB (vs N=256→512 步降 ~0.8 dB)，蝶形累积误差加速
+3. **FP32 ceiling 确认**: ~135-138 dB = 23-bit mantissa 理论极限
+4. **impulse 是退化测试**: FFT=常数，FP16 精确表示 → 无量化误差 → 不具诊断价值
+
+### 输出文件
+
+- `experiments/bergach-repro/fp16_fft_sqnr.py` — v3 脚本 (支持 4 信号 + fp16/fp32)
+- `experiments/bergach-repro/fp16-fft-sqnr.md` — 更新报告含 4×5 矩阵表 + FP32 ceiling
+- `experiments/bergach-repro/fp16_fft_sqnr_summary.csv` — 25 行综合汇总
+- `experiments/bergach-repro/fp16_fft_sqnr_{signal}_{precision}_N{N}.csv` — 25 个 per-trial 文件
+
+### FP8 结论 (不再推进硬件复现)
+
+- [x] FP8 软件仿真已给出下界 (~0 dB)
+- [x] Bergach 2026 §VII 确认 FP8 崩塌到 14-20 dB
+- [x] 结论: FP8 FFT 远低于 FP16 的 56-61 dB → 不可用
+- [x] Phase 3 真正工作在 Sprint 3.2 (BFP 原型)
