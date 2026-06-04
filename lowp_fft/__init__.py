@@ -8,6 +8,7 @@ to PyTorch's built-in torch.fft.
 import math
 import os
 import sys
+import warnings
 import torch
 from typing import Optional
 
@@ -39,19 +40,74 @@ def _maybe_complex(tensor: torch.Tensor) -> torch.Tensor:
     )
 
 
-def _ensure_dtype(
-    tensor: torch.Tensor, target_dtype: torch.dtype
+def _fp16_fft_impl(
+    input_complex: torch.Tensor,
+    n: Optional[int],
+    dim: int,
+    norm: str,
+    direction: str,
 ) -> torch.Tensor:
-    """Convert tensor to target complex dtype, handling real→complex."""
-    if target_dtype == torch.complex64:
-        return tensor.to(torch.complex64)
-    if target_dtype == torch.complex32:
-        if tensor.dtype == torch.float16 or tensor.dtype == torch.bfloat16:
-            return torch.view_as_complex(tensor)
-        if tensor.dtype == torch.float32 or tensor.dtype == torch.complex64:
-            return tensor.to(torch.complex32)
-        return tensor.to(torch.complex32)
-    return tensor
+    """Shared FP16 FFT/IFFT implementation used by fft() and ifft().
+
+    Uses cuFFT Xt extension for native FP16 when available (n=None, dim=-1),
+    with torch.fft fallback otherwise.
+    """
+    if input_complex.dtype == torch.complex32:
+        input_half = input_complex
+    else:
+        input_half = input_complex.to(torch.complex32)
+
+    fast_path = (
+        _cufft_ext is not None
+        and input_half.is_cuda
+        and n is None
+        and dim == -1
+    )
+
+    if fast_path and norm in ("backward", "ortho", "forward"):
+        contig = input_half.contiguous()
+        if torch.is_grad_enabled():
+            from lowp_fft._autograd import FFTFP16, IFFTFP16  # noqa: E402
+            cls = FFTFP16 if direction == "forward" else IFFTFP16
+            result = cls.apply(contig)
+        else:
+            fn = _cufft_ext.fft_fp16_forward if direction == "forward" else _cufft_ext.ifft_fp16_forward
+            result = fn(contig)
+
+        n_dim = float(input_half.size(dim))
+        if direction == "inverse":
+            # cuFFT Xt returns unnormalised IFFT; match torch "backward" /N default
+            result = result / n_dim
+            if norm == "ortho":
+                result = result * math.sqrt(max(1, n_dim))
+            elif norm == "forward":
+                result = result * n_dim
+        else:
+            # cuFFT Xt returns unnormalised FFT; match torch norm conventions
+            if norm == "ortho":
+                result = result / math.sqrt(max(1, n_dim))
+            elif norm == "forward":
+                result = result / n_dim
+        return result
+
+    if not fast_path:
+        reasons = []
+        if _cufft_ext is None:
+            reasons.append("cuFFT FP16 extension not loaded")
+        if not input_half.is_cuda:
+            reasons.append("input is not CUDA")
+        if n is not None:
+            reasons.append(f"n={n} (only n=None supported)")
+        if dim != -1:
+            reasons.append(f"dim={dim} (only dim=-1 supported)")
+        warnings.warn(
+            f"cuFFT FP16 fast path unavailable ({'; '.join(reasons)}); "
+            f"falling back to torch.fft. Use n=None, dim=-1, CUDA tensor "
+            f"for native FP16 acceleration.",
+            UserWarning,
+        )
+
+    return torch.fft.fft(input_half, n=n, dim=dim, norm=norm) if direction == "forward" else torch.fft.ifft(input_half, n=n, dim=dim, norm=norm)
 
 
 def fft(
@@ -82,37 +138,18 @@ def fft(
         return torch.fft.fft(input_complex, n=n, dim=dim, norm=norm)
 
     if precision == "fp16":
-        if input_complex.dtype == torch.complex32:
-            input_half = input_complex
-        else:
-            input_half = input_complex.to(torch.complex32)
-        # Use custom cuFFT Xt extension for native FP16 execution
-        if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
-            if norm in ("backward", "ortho", "forward"):
-                contig = input_half.contiguous()
-                if torch.is_grad_enabled():
-                    from lowp_fft._autograd import FFTFP16  # noqa: E402
-                    result = FFTFP16.apply(contig)
-                else:
-                    result = _cufft_ext.fft_fp16_forward(contig)
-                if norm == "ortho":
-                    result = result / math.sqrt(max(1, input_half.size(-1)))
-                elif norm == "forward":
-                    result = result / input_half.size(-1)
-                return result
-        return torch.fft.fft(input_half, n=n, dim=dim, norm=norm)
+        return _fp16_fft_impl(input_complex, n, dim, norm, "forward")
 
     if precision == "bf16":
-        # BF16: PyTorch may not have native bf16 FFT; fall back to FP32 then cast
+        # BF16: FP32 compute + bf16 cast. Memory bandwidth savings only;
+        # no compute acceleration since cuFFT has no native bf16 support.
         try:
-            input_bf16 = input_complex.to(
-                torch.complex64
-            )  # no complex32 for bf16
+            input_bf16 = input_complex.to(torch.complex64)
             result = torch.fft.fft(input_bf16, n=n, dim=dim, norm=norm)
-            # Cast back: complex64 → real view → bf16 → complex view
             real_view = torch.view_as_real(result)
-            bf16_view = real_view.to(torch.bfloat16)
-            return torch.view_as_complex(bf16_view)
+            # Truncate to bf16 precision, then restore float32 for complex view
+            bf16_trunc = real_view.to(torch.bfloat16).to(torch.float32)
+            return torch.view_as_complex(bf16_trunc)
         except Exception:
             raise RuntimeError(
                 "BF16 FFT not supported on this platform. "
@@ -144,32 +181,17 @@ def ifft(
         return torch.fft.ifft(input_complex, n=n, dim=dim, norm=norm)
 
     if precision == "fp16":
-        if input_complex.dtype == torch.complex32:
-            input_half = input_complex
-        else:
-            input_half = input_complex.to(torch.complex32)
-        if _cufft_ext is not None and input_half.is_cuda and n is None and dim == -1:
-            if norm in ("backward", "ortho", "forward"):
-                contig = input_half.contiguous()
-                if torch.is_grad_enabled():
-                    from lowp_fft._autograd import IFFTFP16  # noqa: E402
-                    result = IFFTFP16.apply(contig)
-                else:
-                    result = _cufft_ext.ifft_fp16_forward(contig)
-                if norm == "ortho":
-                    result = result * math.sqrt(max(1, input_half.size(-1)))
-                elif norm == "forward":
-                    result = result * input_half.size(-1)
-                return result
-        return torch.fft.ifft(input_half, n=n, dim=dim, norm=norm)
+        return _fp16_fft_impl(input_complex, n, dim, norm, "inverse")
 
     if precision == "bf16":
+        # BF16: FP32 compute + bf16 cast. Memory bandwidth savings only;
+        # no compute acceleration since cuFFT has no native bf16 support.
         try:
             input_bf16 = input_complex.to(torch.complex64)
             result = torch.fft.ifft(input_bf16, n=n, dim=dim, norm=norm)
             real_view = torch.view_as_real(result)
-            bf16_view = real_view.to(torch.bfloat16)
-            return torch.view_as_complex(bf16_view)
+            bf16_trunc = real_view.to(torch.bfloat16).to(torch.float32)
+            return torch.view_as_complex(bf16_trunc)
         except Exception:
             raise RuntimeError(
                 "BF16 IFFT not supported on this platform."

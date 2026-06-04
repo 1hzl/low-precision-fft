@@ -8,7 +8,7 @@ cufftSetStream support, backward can switch to FP16.
 
 The backward formula (verified against torch.fft):
     backward(FFT)(grad) = conj(FFT(conj(grad))) = N * IFFT(grad)
-    backward(IFFT)(grad) = conj(IFFT(conj(grad))) = FFT(grad) / N
+    backward(IFFT)(grad) = conj(FFT(conj(grad)))
 """
 
 import os
@@ -49,5 +49,5 @@ class IFFTFP16(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         grad = grad_output.to(torch.complex64).conj()
-        grad = torch.fft.ifft(grad, n=ctx._saved_n, norm="backward")
+        grad = torch.fft.fft(grad, n=ctx._saved_n, norm="backward")
         return grad.conj().to(grad_output.dtype)
