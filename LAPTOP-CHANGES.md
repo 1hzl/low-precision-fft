@@ -2,7 +2,22 @@
 
 ## 2026-06-04: Bergach 2026 Reproduction — NVIDIA Platform Verification
 
-### Experiment 1 — FP16 BFP FFT SQNR ✅
+### Experiment 1 (CORRECTED) — FP16 Forward FFT SQNR ✅
+
+- [x] **CORRECTION**: v1 measured ROUNDTRIP (FFT+IFFT) — WRONG
+- [x] Paper §III-A Table I measures SINGLE-PASS forward FFT SQNR vs FP64 reference
+- [x] Implemented amplitude alignment (paper §IV-B): optimal complex scaling α
+- [x] Measured SQNR for N=1024, 4096 (200 trials each) via cuFFT FP16 extension
+- [x] Results:
+  - N=1024: 59.82 dB (raw) / 59.85 dB (aligned) — MATCHES paper 56-61 dB
+  - N=4096: 56.39 dB (raw) / 56.43 dB (aligned) — MATCHES paper 56-61 dB
+- [x] Alignment gain negligible (+0.02-0.05 dB, |α| ≈ 1.0001): cuFFT is self-calibrated
+- [x] Forward SQNR is ~3 dB higher than v1 roundtrip (half the noise power)
+- [x] Script: `experiments/bergach-repro/fp16_fft_sqnr.py`
+- [x] Report: `experiments/bergach-repro/fp16-fft-sqnr.md`
+- [x] Data: `experiments/bergach-repro/fp16_fft_sqnr_N{1024,4096}.csv` + summary
+
+### Experiment 1 (v1, DEPRECATED) — FP16 BFP FFT Roundtrip SQNR ✅
 
 - [x] Implemented Bergach fixed-shift 1/N BFP scheme (conjugate trick: `conj(X)/N → FFT → conj`)
 - [x] Measured SQNR for N=1024, 4096 (200 trials each) via cuFFT FP16 extension
