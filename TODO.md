@@ -30,4 +30,5 @@
 ## Phase 4: BF16 cuFFT 集成
 
 - [x] 4.1 BF16 测试 + 编译验证 + LAPTOP-CHANGES
+- [x] 4.1 审查修复 — BF16 SQNR 基准对齐 (FP64 reference)
 

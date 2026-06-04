@@ -658,11 +658,11 @@ Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
 
 ### 关键发现
 
-1. **BF16 精度几乎等同 FP16**: SQNR 52.6 dB vs FP16's 56-61 dB — 差距仅 3-8 dB
-2. **SQNR 不随 N 衰减**: 与 FP16 不同，BF16 SQNR 在 N=256→4096 保持 52.5-52.6 dB
+1. **BF16 精度 vs FP16**: SQNR 53.1 dB (vs FP64) / 52.6 dB (vs FP32), FP16: 56-61 dB (vs FP64) — 差距 3-8 dB
+2. **SQNR 不随 N 衰减**: 与 FP16 不同，BF16 SQNR 在 N=256→4096 保持 53.1 dB（FP64 ref）
    - 原因: BF16 的 8-bit 指数提供更好的动态范围，避免累积舍入误差
 3. **BF16 适合 LLM 训练/推理**: 与主流训练格式一致，无需额外精度转换
-4. **吞吐量 ~2x 慢于 FP16**: 主要损失在 bfloat16 ↔ float32 类型转换
+4. **吞吐量 ~2x 慢于 FP16**: 主要损失在 bfloat16  float32 类型转换
 
 ### 输出文件
 
@@ -671,3 +671,48 @@ Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
 - `build_ext.py` — 更新（添加 cufft.lib + /Zc:preprocessor）
 - `lowp_fft/_autograd.py` — 修复（resolve_conj）
 - `lowp_fft/_cufft_ext.cp314-win_amd64.pyd` — 重新编译（含 BF16 符号）
+
+## 2026-06-05: Sprint 4.1 审查修复 — BF16 SQNR 基准对齐 ✅
+
+### 🟡 MINOR — SQNR 对比基准不一致 (已修复)
+
+原 LAPTOP-CHANGES 中 BF16 SQNR 52.6 dB 是 vs FP32，FP16 SQNR 56-61 dB 是 vs FP64，不能直接比较。
+
+**修复**：
+
+1. 新增 `test_bf16_vs_fp64` 在 `tests/test_bf16.py`：使用 `torch.complex128` 作为 ground truth，测 BF16 FFT vs FP64 reference 的 SQNR（Bergach 2026 §III-A, §IV-B 方法，含 scale alignment）
+2. N=[256, 512, 1024, 2048, 4096]，各 100 trials，uniform 信号
+3. 新建 `experiments/bergach-repro/bf16_fft_sqnr.py` — 完整 benchmark 脚本
+
+### BF16 vs FP64 SQNR 结果 (aligned)
+
+| N    | BF16 SQNR (vs FP64) | FP16 SQNR (vs FP64) | Δ (BF16 - FP16) |
+|------|---------------------|---------------------|------------------|
+| 256  | 53.1 ± 0.3 dB       | 61.3 ± 0.3 dB       | -8.2 dB         |
+| 512  | 53.1 ± 0.2 dB       | 60.5 ± 0.2 dB       | -7.4 dB         |
+| 1024 | 53.1 ± 0.1 dB       | 59.9 ± 0.1 dB       | -6.8 dB         |
+| 2048 | 53.1 ± 0.1 dB       | 59.3 ± 0.1 dB       | -6.2 dB         |
+| 4096 | 53.1 ± 0.1 dB       | 56.5 ± 0.1 dB       | -3.4 dB         |
+
+- Scale alignment gain: +0.00 to +0.03 dB — cuFFT BF16 是自校准的
+- BF16 vs FP64 SQNR ≈ BF16 vs FP32 SQNR（52.6 dB vs 53.1 dB），因 FP32 vs FP64 本身有 ~138 dB SQNR，参考精度差异可忽略
+
+### 关键发现
+
+1. **BF16 SQNR 53.1 dB 稳定不变** — 与 FP16 随 N 增加而下降（61.3→56.5 dB）不同，BF16 在所有 N 值下一致 53.1 dB
+2. **FP16 优势在小型 FFT 更大**（-8.2 dB at N=256），大型 FFT 差距缩小（-3.4 dB at N=4096）
+   - FP16 在大尺寸 FFT 中累积更多舍入误差，而 BF16 的 8-bit 指数提供更好的动态范围保护
+3. **BF16/FP16 现在使用相同 FP64 reference** — 可直接比较
+
+### 验收
+
+- [x] BF16 vs FP64 SQNR 数据完整（5 N × 100 trials）
+- [x] LAPTOP-CHANGES 中 BF16/FP16 SQNR 用同一 reference（FP64）
+- [x] pytest: 5/5 TestBF16VsFP64 tests PASSED
+
+### 输出文件
+
+- `tests/test_bf16.py` — 新增 TestBF16VsFP64 类
+- `experiments/bergach-repro/bf16_fft_sqnr.py` — BF16 vs FP64 benchmark 脚本
+- `experiments/bergach-repro/bf16_fft_sqnr_uniform_N{256,512,1024,2048,4096}.csv` — 5 个 per-trial 数据文件
+- `experiments/bergach-repro/bf16_fft_sqnr_summary.csv` — 汇总数据

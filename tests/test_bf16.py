@@ -248,6 +248,58 @@ class TestBF16Throughput:
         assert t_fp16 > 0
 
 
+# ── Test 1b: BF16 FFT vs FP64 reference (Bergach methodology) ──────────
+
+@requires_bf16
+class TestBF16VsFP64:
+    """BF16 FFT SQNR vs FP64 (complex128) ground truth.
+
+    Uses same methodology as FP16 experiment (Bergach 2026 §III-A, §IV-B):
+    FP64 reference → BF16 FFT → optimal scale alignment → SQNR.
+
+    This makes BF16 and FP16 SQNR directly comparable since both use FP64 reference.
+    """
+
+    @pytest.mark.parametrize("n", [256, 512, 1024, 2048, 4096])
+    def test_bf16_vs_fp64(self, n):
+        n_trials = 100
+        sqnr_values = []
+
+        for trial in range(n_trials):
+            seed = trial * 10007 + n + 400003
+            g = torch.Generator(device="cpu")
+            g.manual_seed(seed)
+            real = torch.rand(n, generator=g, dtype=torch.float64) * 2.0 - 1.0
+            imag = torch.rand(n, generator=g, dtype=torch.float64) * 2.0 - 1.0
+            x_fp64 = torch.complex(real, imag).cuda()
+
+            with torch.no_grad():
+                # FP64 reference
+                X_ref = torch.fft.fft(x_fp64, norm="backward")
+
+                # BF16 test: FP64 → complex64 → BF16 cuFFT
+                x_fp32 = x_fp64.to(dtype=torch.complex64)
+                X_test = lowp_fft.fft(x_fp32, precision="bf16")
+
+                # Optimal scale alignment (Bergach §IV-B)
+                test_c128 = X_test.to(torch.complex128)
+                inner = (X_ref * test_c128.conj()).sum()
+                norm_test = test_c128.abs().pow(2).sum()
+                alpha = inner / norm_test.clamp(min=1e-40)
+                X_aligned = alpha * test_c128
+
+                signal_power = X_ref.abs().pow(2).sum().item()
+                error_power = (X_ref - X_aligned).abs().pow(2).sum().item()
+                sqnr = 10.0 * math.log10(signal_power / max(error_power, 1e-40))
+                sqnr_values.append(sqnr)
+
+        sqnr_mean = sum(sqnr_values) / len(sqnr_values)
+        sqnr_std = (sum((v - sqnr_mean) ** 2 for v in sqnr_values) / len(sqnr_values)) ** 0.5
+
+        print(f"\nBF16 vs FP64 N={n:4d}: SQNR={sqnr_mean:.1f} ± {sqnr_std:.1f} dB")
+        assert sqnr_mean > 45.0, f"N={n}: BF16 vs FP64 SQNR={sqnr_mean:.1f} dB < 45 dB"
+
+
 # ── Edge cases ───────────────────────────────────────────────────────
 
 @requires_bf16
