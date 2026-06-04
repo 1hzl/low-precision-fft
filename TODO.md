@@ -25,4 +25,4 @@
 - [x] 3.2 块浮点 FFT — CPU Python 原型
 - [x] 3.3 块浮点 FFT — CUDA kernel v0
 - [x] 3.3 审查修复 — 消除 device sync + twiddle 差异文档
-- [ ] 3.4 精度-性能调优
+- [x] 3.4 精度-性能调优 & 最终报告

@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstring>
 #include <vector>
+#include <algorithm>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
@@ -414,18 +415,192 @@ static void gen_random_normal(float* re, float* im, int N, unsigned int seed) {
     }
 }
 
+// ─── GPU Benchmark ─────────────────────────────────────────────────────
+
+static double run_bfp_gpu_benchmark(int N, int warmup, int reps, int batch) {
+    int log2N = 0;
+    for (int t = N; t > 1; t >>= 1) log2N++;
+    int grid_pairs = (N / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    int grid_full  = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    // Generate random normal test data
+    std::vector<float> h_x_re(N), h_x_im(N);
+    gen_random_normal(h_x_re.data(), h_x_im.data(), N, 42);
+
+    // Bit-reverse + initial quantization on host
+    std::vector<__nv_fp8_e4m3> h_fp8_re(N), h_fp8_im(N);
+    float max_abs = 0.0f;
+    for (int i = 0; i < N; i++) {
+        int rev = bit_reverse(i, log2N);
+        float a = fabsf(h_x_re[rev]), b = fabsf(h_x_im[rev]);
+        if (a > max_abs) max_abs = a;
+        if (b > max_abs) max_abs = b;
+    }
+    int E0 = compute_exponent_from_max(max_abs);
+    float init_scale = exp2f(-(float)E0);
+    for (int i = 0; i < N; i++) {
+        int rev = bit_reverse(i, log2N);
+        h_fp8_re[i] = float_to_fp8(h_x_re[rev] * init_scale);
+        h_fp8_im[i] = float_to_fp8(h_x_im[rev] * init_scale);
+    }
+
+    // Allocate device memory (work + pristine copies for reset)
+    __nv_fp8_e4m3 *d_fp8_re, *d_fp8_im;
+    __nv_fp8_e4m3 *d_fp8_re_init, *d_fp8_im_init;
+    float *d_work_re, *d_work_im;
+    unsigned int *d_stage_max_bits;
+    int *d_stages_exp;
+
+    CHECK_CUDA(cudaMalloc(&d_fp8_re, N * sizeof(__nv_fp8_e4m3)));
+    CHECK_CUDA(cudaMalloc(&d_fp8_im, N * sizeof(__nv_fp8_e4m3)));
+    CHECK_CUDA(cudaMalloc(&d_fp8_re_init, N * sizeof(__nv_fp8_e4m3)));
+    CHECK_CUDA(cudaMalloc(&d_fp8_im_init, N * sizeof(__nv_fp8_e4m3)));
+    CHECK_CUDA(cudaMalloc(&d_work_re, N * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&d_work_im, N * sizeof(float)));
+    CHECK_CUDA(cudaMalloc(&d_stage_max_bits, (log2N + 1) * sizeof(unsigned int)));
+    CHECK_CUDA(cudaMalloc(&d_stages_exp, (log2N + 1) * sizeof(int)));
+
+    // Copy pristine initial data to device
+    CHECK_CUDA(cudaMemcpy(d_fp8_re_init, h_fp8_re.data(),
+                           N * sizeof(__nv_fp8_e4m3), cudaMemcpyHostToDevice));
+    CHECK_CUDA(cudaMemcpy(d_fp8_im_init, h_fp8_im.data(),
+                           N * sizeof(__nv_fp8_e4m3), cudaMemcpyHostToDevice));
+
+    // CUDA events for timing
+    cudaEvent_t ev_start, ev_stop;
+    CHECK_CUDA(cudaEventCreate(&ev_start));
+    CHECK_CUDA(cudaEventCreate(&ev_stop));
+
+    std::vector<float> elapsed_ms(reps * batch);
+
+    for (int rep = 0; rep < reps; rep++) {
+        for (int b = 0; b < batch; b++) {
+            // Reset working buffers from pristine copies
+            CHECK_CUDA(cudaMemcpy(d_fp8_re, d_fp8_re_init,
+                                   N * sizeof(__nv_fp8_e4m3), cudaMemcpyDeviceToDevice));
+            CHECK_CUDA(cudaMemcpy(d_fp8_im, d_fp8_im_init,
+                                   N * sizeof(__nv_fp8_e4m3), cudaMemcpyDeviceToDevice));
+            CHECK_CUDA(cudaMemset(d_stage_max_bits, 0, (log2N + 1) * sizeof(unsigned int)));
+            CHECK_CUDA(cudaMemset(d_stages_exp, 0, (log2N + 1) * sizeof(int)));
+            int host_E0 = E0;
+            CHECK_CUDA(cudaMemcpy(d_stages_exp, &host_E0, sizeof(int),
+                                   cudaMemcpyHostToDevice));
+
+            // Time GPU kernel execution
+            CHECK_CUDA(cudaEventRecord(ev_start));
+
+            for (int s = 0; s < log2N; s++) {
+                int step = 1 << s;
+                bfp_fft_dit_stage<<<grid_pairs, BLOCK_SIZE>>>(
+                    d_fp8_re, d_fp8_im, d_work_re, d_work_im,
+                    d_stage_max_bits + s + 1,
+                    d_stages_exp, s, step, N);
+                CHECK_CUDA(cudaGetLastError());
+
+                bfp_requantize<<<grid_full, BLOCK_SIZE>>>(
+                    d_work_re, d_work_im, d_fp8_re, d_fp8_im,
+                    d_stage_max_bits + s + 1,
+                    d_stages_exp, s + 1, N);
+                CHECK_CUDA(cudaGetLastError());
+            }
+
+            CHECK_CUDA(cudaDeviceSynchronize());
+
+            bfp_dequant_output<<<grid_full, BLOCK_SIZE>>>(
+                d_fp8_re, d_fp8_im, d_work_re, d_work_im,
+                d_stages_exp, log2N, N);
+            CHECK_CUDA(cudaGetLastError());
+
+            CHECK_CUDA(cudaEventRecord(ev_stop));
+            CHECK_CUDA(cudaEventSynchronize(ev_stop));
+
+            float ms;
+            CHECK_CUDA(cudaEventElapsedTime(&ms, ev_start, ev_stop));
+            elapsed_ms[rep * batch + b] = ms;
+        }
+    }
+
+    // Sort and find median
+    std::sort(elapsed_ms.begin(), elapsed_ms.end());
+    double median_ms = elapsed_ms[elapsed_ms.size() / 2];
+
+    // Cleanup
+    CHECK_CUDA(cudaEventDestroy(ev_start));
+    CHECK_CUDA(cudaEventDestroy(ev_stop));
+    CHECK_CUDA(cudaFree(d_fp8_re));
+    CHECK_CUDA(cudaFree(d_fp8_im));
+    CHECK_CUDA(cudaFree(d_fp8_re_init));
+    CHECK_CUDA(cudaFree(d_fp8_im_init));
+    CHECK_CUDA(cudaFree(d_work_re));
+    CHECK_CUDA(cudaFree(d_work_im));
+    CHECK_CUDA(cudaFree(d_stage_max_bits));
+    CHECK_CUDA(cudaFree(d_stages_exp));
+
+    return median_ms * 1000.0;  // ms → μs
+}
+
 // ─── Self-test main ────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
-    // Parse args: optional N
-    int test_N = 256;
-    if (argc > 1) test_N = atoi(argv[1]);
-
     // Device info
     int dev;
     CHECK_CUDA(cudaGetDevice(&dev));
     cudaDeviceProp prop;
     CHECK_CUDA(cudaGetDeviceProperties(&prop, dev));
+
+    // ── Benchmark mode: --bench N [warmup] [reps] [batch] ────────────
+    if (argc >= 3 && strcmp(argv[1], "--bench") == 0) {
+        int N = atoi(argv[2]);
+        int warmup = (argc > 3) ? atoi(argv[3]) : 50;
+        int reps   = (argc > 4) ? atoi(argv[4]) : 200;
+        int batch  = (argc > 5) ? atoi(argv[5]) : 1;
+
+        // Warmup (discard)
+        run_bfp_gpu_benchmark(N, 0, warmup, batch);
+
+        // Timed run
+        double median_us = run_bfp_gpu_benchmark(N, 0, reps, batch);
+        double per_fft_us = median_us / (double)batch;
+
+        std::printf("BENCH N=%d warmup=%d reps=%d batch=%d median_us=%.2f per_fft_us=%.2f\n",
+                    N, warmup, reps, batch, median_us, per_fft_us);
+        return 0;
+    }
+
+    // ── Benchmark-list mode: --bench-list [warmup] [reps] ────────────
+    if (argc >= 2 && strcmp(argv[1], "--bench-list") == 0) {
+        int warmup = (argc > 2) ? atoi(argv[2]) : 50;
+        int reps   = (argc > 3) ? atoi(argv[3]) : 200;
+
+        std::printf("# BFP FFT GPU Benchmark (Sprint 3.4)\n");
+        std::printf("# Device: %s (SM %d.%d, CUDA %d)\n",
+                    prop.name, prop.major, prop.minor,
+                    CUDART_VERSION / 1000);
+        std::printf("# %-6s  %-12s\n", "N", "median_us");
+        std::printf("# --------------------\n");
+
+        int N_values[] = {256, 512, 1024, 2048, 4096};
+        int num_n = sizeof(N_values) / sizeof(N_values[0]);
+
+        for (int ni = 0; ni < num_n; ni++) {
+            int N = N_values[ni];
+
+            // Warmup
+            run_bfp_gpu_benchmark(N, 0, warmup, 1);
+
+            // Timed
+            double median_us = run_bfp_gpu_benchmark(N, 0, reps, 1);
+
+            std::printf("BENCH N=%-6d median_us=%.2f\n", N, median_us);
+        }
+        std::printf("# Done.\n");
+        return 0;
+    }
+
+    // ── Default: self-test mode ─────────────────────────────────────
+    int test_N = 256;
+    if (argc > 1) test_N = atoi(argv[1]);
+
     std::printf("# BFP FFT CUDA Kernel v0 (Sprint 3.3)\n");
     std::printf("# Device: %s (SM %d.%d, CUDA %d)\n",
                 prop.name, prop.major, prop.minor,

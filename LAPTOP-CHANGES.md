@@ -488,3 +488,89 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
   - CUDA 使用 float32 twiddle → CUDA SQNR 比 Python 略高 0.5-1.1 dB
 - **工程判断**: float twiddle 是正确的选择 — twiddle 因子不需要 FP8 量化，因为它们不存储在 BFP 格式中，仅在 butterfly 计算时使用
 - **无需修改代码**，仅记录此差异以便未来分析时参考
+
+## 2026-06-04 (续 8): Sprint 3.4 — 精度-性能调优 & 最终报告 ✅
+
+### 任务 1 — 吞吐量基准测试 ✅
+
+- [x] 为 `bfp_fft.cu` 添加 `--bench` 和 `--bench-list` 模式（CUDA event GPU 计时）
+- [x] `tests/bench_bfp_throughput.py` — 三种方法对比脚本
+  - BFP FP8: 通过 subprocess 调用 bfp_fft.exe --bench
+  - cuFFT FP16: torch.cuda.Event 计时，使用 _cufft_ext
+  - cuFFT FP32: torch.cuda.Event 计时，使用 torch.fft.fft
+- [x] N = [256, 512, 1024, 2048, 4096], batch = [1, 16, 64, 256]
+- [x] Warmup 100, Reps 1000
+
+### Throughput Results (per-FFT GPU kernel time, μs)
+
+| N    | BFP FP8 | cuFFT FP16 | cuFFT FP32 | Ratio (BFP/FP16) |
+|------|---------|------------|------------|-------------------|
+| 256  | 111.5   | 16.3       | 34.3       | 0.15×            |
+| 512  | 126.5   | 13.1       | 15.1       | 0.10×            |
+| 1024 | 137.1   | 16.8       | 12.4       | 0.12×            |
+| 2048 | 143.7   | 8.2        | 17.9       | 0.06×            |
+| 4096 | 154.8   | 9.4        | 10.3       | 0.06×            |
+
+- BFP GPU time: 112-155 μs/FFT (N=256→4096)
+- cuFFT FP16 single: 8-17 μs/FFT (7-17× faster)
+- BFP has no native batching → batch comparison favors cuFFT heavily
+- cuFFT batched (batch=256, N=4096): 0.04 μs/FFT, 6692 GFLOPS
+- BFP: 1.6 GFLOPS (unoptimized research kernel)
+
+### Performance Gap Analysis
+
+BFP v0 is a correctness-first research kernel with no optimization:
+- No shared memory usage for twiddle factors
+- No warp-level parallelism
+- Basic occupancy (BLOCK_SIZE=256)
+- Two separate kernel launches per stage
+
+Expected gains from optimization (future work):
+- Shared memory: 2-3× reduction in global memory traffic
+- Kernel fusion: eliminate intermediate kernel launch overhead
+- Warp intrinsics: 2-4× for small-N butterfly pairs
+- Target: 10-20× improvement → 5-10 μs/FFT at N=4096
+
+### 任务 2 — 精度汇总 ✅
+
+| Method                  | N=256 | N=512 | N=1024 | N=2048 | N=4096 |
+|-------------------------|-------|-------|--------|--------|--------|
+| cuFFT FP32 (complex64)  | 138 dB| 136 dB| 135 dB | 136 dB | 135 dB |
+| cuFFT FP16 (complex32)  | 61 dB | 61 dB | 60 dB  | 60 dB  | 57 dB  |
+| BFP FP8 (CUDA v0)       | 22 dB | 22 dB | 21 dB  | 21 dB  | 20 dB  |
+| Naive FP8 (every-op)    | ~0 dB | ~0 dB | ~0 dB  | ~0 dB  | ~0 dB  |
+
+- BFP provides ~20-30 dB gain over naive FP8
+- FP16 is the practical precision floor (57-61 dB)
+- BFP FP8 at ~20 dB = 3-4 bit effective precision
+- N scaling: SQNR drops only ~2 dB from N=256→4096 (unlike naive FP8 O(N) collapse)
+
+### 任务 3 — 文档更新 ✅
+
+- [x] TODO.md: 3.4 → [x]（Phase 3 全部完成）
+- [x] LAPTOP-CHANGES.md: Sprint 3.4 总结
+- [x] `docs/sprint-3.4-final-report.md`: 完整最终报告
+  - 精度汇总表 + 分析
+  - 吞吐量对比表 + GFLOPS
+  - BFP vs Naive FP8 收益分析
+  - 性能优化机会分析
+  - 下一步规划 (Phase 4: July 2026)
+
+### Phase 3 总结
+
+Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
+- [x] 3.1 理论分析（FP8 表示能力、误差模型、策略对比、Bergach 验证）
+- [x] 3.2 BFP Python 原型（算法验证，BFP vs Naive FP8 = +20-30 dB）
+- [x] 3.3 CUDA kernel v0（硬件 FP8，per-stage BFP，无 device sync）
+- [x] 3.3 审查修复（消除 per-stage GPU↔Host 同步）
+- [x] 3.4 精度-性能调优 & 最终报告
+
+### 输出文件
+
+- `data/sprint-3.4-throughput.csv` — 吞吐量数据 (20 行)
+- `tests/bench_bfp_throughput.py` — 基准测试脚本
+- `docs/sprint-3.4-final-report.md` — 最终报告
+- `build/bfp_fft.exe` — 更新（支持 --bench/--bench-list）
+- `src/cuda/bfp_fft.cu` — 更新（添加 GPU benchmark 函数）
+- TODO.md: 3.4 → [x]
+- LAPTOP-CHANGES.md: Sprint 3.4 总结
