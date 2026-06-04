@@ -90,7 +90,7 @@ def _fp16_fft_impl(
                 result = result / n_dim
         return result
 
-    if not fast_path:
+    else:
         reasons = []
         if _cufft_ext is None:
             reasons.append("cuFFT FP16 extension not loaded")
@@ -100,6 +100,9 @@ def _fp16_fft_impl(
             reasons.append(f"n={n} (only n=None supported)")
         if dim != -1:
             reasons.append(f"dim={dim} (only dim=-1 supported)")
+        if not reasons:
+            reasons.append(f"norm='{norm}' not in valid fast-path modes "
+                           "(backward, ortho, forward)")
         warnings.warn(
             f"cuFFT FP16 fast path unavailable ({'; '.join(reasons)}); "
             f"falling back to torch.fft. Use n=None, dim=-1, CUDA tensor "

@@ -89,16 +89,15 @@ static cufftHandle acquire_plan(int64_t n, int64_t batch, int direction) {
             cufftDestroy(entry.plan);
             return it->second.plan;
         }
-        g_plan_cache[key] = entry;
-
-        // LRU: if cache exceeds limit, flush all entries to prevent GPU memory leak
-        if (g_plan_cache.size() > kMaxCacheEntries) {
+        // Evict before inserting so the new entry survives the flush
+        if (g_plan_cache.size() >= kMaxCacheEntries) {
             for (auto& [k, e] : g_plan_cache) {
                 cufftDestroy(e.plan);
                 if (e.workspace) cudaFree(e.workspace);
             }
             g_plan_cache.clear();
         }
+        g_plan_cache[key] = entry;
     }
     return entry.plan;
 }
