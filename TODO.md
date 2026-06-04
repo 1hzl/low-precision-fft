@@ -22,6 +22,6 @@
 - [x] 3.1c FFT 蝶形误差传播模型 + Python 仿真 → `docs/fp8-fft-error-model.md` + `tests/sim_fp8_fft_error.py`
 - [x] 3.1d 三种候选方案对比（含论文验证） → `docs/fp8-strategy-comparison.md` (推荐: 块浮点数)
 - [x] 3.1e NVIDIA RTX 5070 Ti FP8 验证 → `src/cuda/fp8_verification.cu` + `build_fp8.bat`
-- [ ] 3.2 块浮点 FFT — CPU Python 原型
+- [x] 3.2 块浮点 FFT — CPU Python 原型
 - [ ] 3.3 块浮点 FFT — CUDA kernel v0
 - [ ] 3.4 精度-性能调优
