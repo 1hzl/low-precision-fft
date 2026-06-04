@@ -33,6 +33,8 @@ struct CachedPlan {
     size_t workspace_bytes;
 };
 
+static constexpr size_t kMaxCacheEntries = 64;
+
 static std::unordered_map<std::string, CachedPlan> g_plan_cache;
 static std::mutex g_cache_mutex;
 
@@ -88,6 +90,15 @@ static cufftHandle acquire_plan(int64_t n, int64_t batch, int direction) {
             return it->second.plan;
         }
         g_plan_cache[key] = entry;
+
+        // LRU: if cache exceeds limit, flush all entries to prevent GPU memory leak
+        if (g_plan_cache.size() > kMaxCacheEntries) {
+            for (auto& [k, e] : g_plan_cache) {
+                cufftDestroy(e.plan);
+                if (e.workspace) cudaFree(e.workspace);
+            }
+            g_plan_cache.clear();
+        }
     }
     return entry.plan;
 }
@@ -109,11 +120,6 @@ static torch::Tensor fft_fp16_impl(torch::Tensor input, int direction) {
 
     // c10::complex<at::Half> is bit-compatible with cuFFT FP16 interleaved
     CUFFT_CHECK(cufftXtExec(plan, (void*)input.data_ptr(), (void*)output.data_ptr(), direction));
-
-    // cuFFT inverse is unnormalised; match torch.fft.ifft "backward" default
-    if (direction == CUFFT_INVERSE) {
-        output.div_(static_cast<float>(n));
-    }
 
     return output;
 }
