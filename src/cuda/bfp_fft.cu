@@ -62,7 +62,7 @@ static int bit_reverse(int i, int log2N) {
 
 // ─── Exponent computation ──────────────────────────────────────────────
 
-static int compute_exponent_from_max(float max_val) {
+static __host__ __device__ int compute_exponent_from_max(float max_val) {
     if (max_val == 0.0f) return 0;
     float f_exp = log2f(max_val / FP8_MAX);
     int E = (int)floorf(f_exp);
@@ -81,7 +81,8 @@ __global__ void bfp_fft_dit_stage(
     float* __restrict__ work_re,
     float* __restrict__ work_im,
     unsigned int* __restrict__ max_abs_bits,
-    int shared_exp,
+    const int* __restrict__ stages_exp,
+    int stage,
     int step,
     int N
 ) {
@@ -95,6 +96,7 @@ __global__ void bfp_fft_dit_stage(
     int a = group_start + pair_off;
     int b = a + step;
 
+    int shared_exp = stages_exp[stage];
     float scale = exp2f((float)shared_exp);
 
     // Dequantize
@@ -144,13 +146,27 @@ __global__ void bfp_requantize(
     const float* __restrict__ work_im,
     __nv_fp8_e4m3* __restrict__ fp8_re,
     __nv_fp8_e4m3* __restrict__ fp8_im,
-    int shared_exp,
+    const unsigned int* __restrict__ stage_max_bits,
+    int* __restrict__ stages_exp,
+    int stage,
     int N
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
 
-    float inv_scale = exp2f(-(float)shared_exp);
+    // Thread 0 computes shared exponent from stage atomicMax result
+    __shared__ int s_exp;
+    if (threadIdx.x == 0) {
+        float stage_max;
+        unsigned int bits = *stage_max_bits;
+        // Interpret unsigned int bits as float (works for non-negative floats)
+        stage_max = __uint_as_float(bits);
+        s_exp = compute_exponent_from_max(stage_max);
+        stages_exp[stage] = s_exp;
+    }
+    __syncthreads();
+
+    float inv_scale = exp2f(-(float)s_exp);
     fp8_re[idx] = float_to_fp8(work_re[idx] * inv_scale);
     fp8_im[idx] = float_to_fp8(work_im[idx] * inv_scale);
 }
@@ -162,12 +178,14 @@ __global__ void bfp_dequant_output(
     const __nv_fp8_e4m3* __restrict__ fp8_im,
     float* __restrict__ out_re,
     float* __restrict__ out_im,
-    int shared_exp,
+    const int* __restrict__ stages_exp,
+    int stage,
     int N
 ) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= N) return;
 
+    int shared_exp = stages_exp[stage];
     float scale = exp2f((float)shared_exp);
     out_re[idx] = fp8_to_float(fp8_re[idx]) * scale;
     out_im[idx] = fp8_to_float(fp8_im[idx]) * scale;
@@ -213,57 +231,66 @@ BFP_API int bfp_fft_forward(
     // ── 2. Allocate device memory ────────────────────────────────────
     __nv_fp8_e4m3 *d_fp8_re, *d_fp8_im;
     float *d_work_re, *d_work_im;
-    unsigned int *d_max_bits;
+    unsigned int *d_stage_max_bits;
+    int *d_stages_exp;
 
     CHECK_CUDA(cudaMalloc(&d_fp8_re, N * sizeof(__nv_fp8_e4m3)));
     CHECK_CUDA(cudaMalloc(&d_fp8_im, N * sizeof(__nv_fp8_e4m3)));
     CHECK_CUDA(cudaMalloc(&d_work_re, N * sizeof(float)));
     CHECK_CUDA(cudaMalloc(&d_work_im, N * sizeof(float)));
-    CHECK_CUDA(cudaMalloc(&d_max_bits, sizeof(unsigned int)));
+    CHECK_CUDA(cudaMalloc(&d_stage_max_bits, (log2N + 1) * sizeof(unsigned int)));
+    CHECK_CUDA(cudaMalloc(&d_stages_exp, (log2N + 1) * sizeof(int)));
+
+    // Zero-initialize per-stage max bits and exponents
+    CHECK_CUDA(cudaMemset(d_stage_max_bits, 0, (log2N + 1) * sizeof(unsigned int)));
+    CHECK_CUDA(cudaMemset(d_stages_exp, 0, (log2N + 1) * sizeof(int)));
 
     CHECK_CUDA(cudaMemcpy(d_fp8_re, h_fp8_re.data(),
                            N * sizeof(__nv_fp8_e4m3), cudaMemcpyHostToDevice));
     CHECK_CUDA(cudaMemcpy(d_fp8_im, h_fp8_im.data(),
                            N * sizeof(__nv_fp8_e4m3), cudaMemcpyHostToDevice));
 
+    // Write initial exponent (stage 0) to device
+    int host_E0 = E_cur;
+    CHECK_CUDA(cudaMemcpy(d_stages_exp, &host_E0, sizeof(int),
+                           cudaMemcpyHostToDevice));
+
     int grid_pairs = (N / 2 + BLOCK_SIZE - 1) / BLOCK_SIZE;
     int grid_full  = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
-    // ── 3. Stage-by-stage butterfly ──────────────────────────────────
+    // ── 3. Stage-by-stage butterfly (all GPU, no host sync) ──────────
     for (int s = 0; s < log2N; s++) {
         int step = 1 << s;
 
         // Kernel 1: dequant → butterfly → float workspace + atomicMax
-        unsigned int host_max_bits = 0;
-        CHECK_CUDA(cudaMemcpy(d_max_bits, &host_max_bits, sizeof(unsigned int),
-                               cudaMemcpyHostToDevice));
-
         bfp_fft_dit_stage<<<grid_pairs, BLOCK_SIZE>>>(
-            d_fp8_re, d_fp8_im, d_work_re, d_work_im, d_max_bits,
-            E_cur, step, N);
-        CHECK_CUDA(cudaDeviceSynchronize());
+            d_fp8_re, d_fp8_im, d_work_re, d_work_im,
+            d_stage_max_bits + s + 1,  // per-stage max output
+            d_stages_exp, s,           // read shared_exp from previous stage
+            step, N);
         CHECK_CUDA(cudaGetLastError());
 
-        // Get max back to host for exponent computation
-        CHECK_CUDA(cudaMemcpy(&host_max_bits, d_max_bits, sizeof(unsigned int),
-                               cudaMemcpyDeviceToHost));
-
-        float stage_max;
-        std::memcpy(&stage_max, &host_max_bits, sizeof(float));
-        E_cur = compute_exponent_from_max(stage_max);
-        stages_exp[s + 1] = E_cur;
-
-        // Kernel 2: requantize float workspace → FP8 mantissas
+        // Kernel 2: compute exponent from max + requantize → FP8
         bfp_requantize<<<grid_full, BLOCK_SIZE>>>(
-            d_work_re, d_work_im, d_fp8_re, d_fp8_im, E_cur, N);
-        CHECK_CUDA(cudaDeviceSynchronize());
+            d_work_re, d_work_im, d_fp8_re, d_fp8_im,
+            d_stage_max_bits + s + 1,  // read per-stage max
+            d_stages_exp, s + 1,       // write computed exponent
+            N);
         CHECK_CUDA(cudaGetLastError());
     }
 
+    // Single sync after all stages — catches any accumulated kernel errors
+    CHECK_CUDA(cudaDeviceSynchronize());
+
+    // Retrieve exponents from device
+    CHECK_CUDA(cudaMemcpy(stages_exp, d_stages_exp, (log2N + 1) * sizeof(int),
+                           cudaMemcpyDeviceToHost));
+
     // ── 4. Final dequantize → float output ──────────────────────────
     bfp_dequant_output<<<grid_full, BLOCK_SIZE>>>(
-        d_fp8_re, d_fp8_im, d_work_re, d_work_im, E_cur, N);
-    CHECK_CUDA(cudaDeviceSynchronize());
+        d_fp8_re, d_fp8_im, d_work_re, d_work_im,
+        d_stages_exp, log2N,  // read final exponent from device
+        N);
     CHECK_CUDA(cudaGetLastError());
 
     CHECK_CUDA(cudaMemcpy(X_real, d_work_re, N * sizeof(float),
@@ -276,7 +303,8 @@ BFP_API int bfp_fft_forward(
     CHECK_CUDA(cudaFree(d_fp8_im));
     CHECK_CUDA(cudaFree(d_work_re));
     CHECK_CUDA(cudaFree(d_work_im));
-    CHECK_CUDA(cudaFree(d_max_bits));
+    CHECK_CUDA(cudaFree(d_stage_max_bits));
+    CHECK_CUDA(cudaFree(d_stages_exp));
 
     return 0;
 }
