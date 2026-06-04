@@ -32,3 +32,11 @@
 - [x] 4.1 BF16 测试 + 编译验证 + LAPTOP-CHANGES
 - [x] 4.1 审查修复 — BF16 SQNR 基准对齐 (FP64 reference)
 
+## Phase 4: Sprint 4.2 — BFP 功能补全 + 性能优化 + 项目收尾 ✅
+
+- [x] 4.2.1 BFP 接入公共 API (fp8 → BFPFFT)
+- [x] 4.2.2 BFP CUDA inverse FFT (roundtrip verified)
+- [x] 4.2.3 内存带宽 benchmark (large batch × large N)
+- [x] 4.2.4 BFP 边界测试 (DC/极值/全零/N=2,4)
+- [x] 4.2.5 README 更新
+
