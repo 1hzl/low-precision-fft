@@ -376,3 +376,36 @@ Phase 2 (FP16 cuFFT → PyTorch 封装) 全部完成：
 - [x] Bergach 2026 §VII 确认 FP8 崩塌到 14-20 dB
 - [x] 结论: FP8 FFT 远低于 FP16 的 56-61 dB → 不可用
 - [x] Phase 3 真正工作在 Sprint 3.2 (BFP 原型)
+
+## 2026-06-04 (续 5): Sprint 3.2 — BFP FFT Python 原型 ✅
+
+### 实现
+
+- [x] `lowp_fft/bfp_fft.py`: BFPFFT class + FP8 E4M3 quantizer + shared exponent utilities
+- [x] `tests/test_bfp_fft.py`: 17 个测试全部通过 (FP8 量化 + shared exponent + BFPFFT)
+- [x] 算法: per-stage BFP — dequantize to float → butterflies in float64 → quantize at stage boundaries
+- [x] 修复: 从 plan 的 per-butterfly clamping 改为正确的 per-stage quantization
+- [x] Inverse FFT 添加 1/N 归一化
+
+### 基准测试结果
+
+`data/sprint-3.2-bfp-bench.csv` — 3 信号 × 9 N 值 = 27 个数据点:
+
+| N | Naive FP8 SNR | BFP SNR | Gain |
+|---|---------------|---------|------|
+| 16 | 19-27 dB | 21-31 dB | +2-4 dB |
+| 64 | 16-20 dB | 21-29 dB | +5-9 dB |
+| 256 | -1-0 dB | 21-29 dB | +21-30 dB |
+| 1024 | -1-0 dB | 20-28 dB | +20-29 dB |
+| 4096 | ~0 dB | 20-27 dB | +20-27 dB |
+
+- **验收通过**: N=256 BFP SQNR ≥ 原生 FP8 SQNR (20+ dB vs ~0 dB)
+- BFP 在所有 N 值下稳定输出 20-30 dB SQNR，naive FP8 在 N≥256 时完全崩溃
+- Per-stage quantization 有效：log₂(N) 次量化 vs naive 的 N·log₂(N) 次
+
+### 输出文件
+
+- `lowp_fft/bfp_fft.py` — BFP FFT module
+- `tests/test_bfp_fft.py` — 测试套件
+- `data/sprint-3.2-bfp-bench.csv` — 基准数据
+- TODO.md: 3.2 → [x]
