@@ -1,5 +1,18 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-05: Task 1d-fix — 修正 impulse 脚注公式
+
+### 修复
+
+- [x] `data/sqn-all-summary.md` 脚注: `≈ 3 + 10·log₁₀(N) dB` → `SQNR scales as 10·log₁₀(N) — signal energy grows with N while residual is limited by FP64 numerical noise floor (~constant)`
+
+### 验收
+
+- [x] 脚注不再含错误的数字公式
+- [x] 解释仍然清晰
+
+---
+
 ## 2026-06-05: Task 1d — 三精度 SQNR 合并汇总
 
 ### 产出 ✅
