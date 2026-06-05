@@ -196,10 +196,10 @@ def _bf16_fft_impl(
         real_view = torch.view_as_real(result)
         bf16_trunc = real_view.to(torch.bfloat16).to(torch.float32)
         return torch.view_as_complex(bf16_trunc)
-    except Exception:
+    except (TypeError, RuntimeError, ValueError) as e:
         raise RuntimeError(
             f"BF16 {'FFT' if direction == 'forward' else 'IFFT'} not supported on this platform. "
-            "Requires SM_80+ GPU with CUDA 11+."
+            f"Requires SM_80+ GPU with CUDA 11+. Original error: {e}"
         )
 
 
@@ -218,7 +218,7 @@ def fft(
         n: FFT size (pads/truncates if != input size along dim).
         dim: Dimension along which to compute FFT.
         norm: Normalization mode ("forward", "backward", "ortho").
-        precision: "fp32", "fp16", or "bf16". None defaults to input dtype.
+        precision: "fp32", "fp16", "bf16", or "fp8". None defaults to input dtype.
 
     Returns:
         Complex tensor in the requested precision.

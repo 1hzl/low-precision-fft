@@ -27,7 +27,7 @@ static void check_cuda(cudaError_t r, const char* file, int line) {
 }
 #define CUDA_CHECK(call) check_cuda((call), __FILE__, __LINE__)
 
-// ─── Plan cache ─────────────────────────────────────────────────────
+// ─── Plan cache (templated for FP16 / BF16 reuse) ───────────────────
 struct CachedPlan {
     cufftHandle plan;
     void* workspace;
@@ -36,72 +36,75 @@ struct CachedPlan {
 
 static constexpr size_t kMaxCacheEntries = 64;
 
-static std::unordered_map<std::string, CachedPlan> g_plan_cache;
-static std::mutex g_cache_mutex;
+template<cufftType DType>
+struct PlanCache {
+    static std::unordered_map<std::string, CachedPlan> plans;
+    static std::mutex mtx;
 
-static std::string cache_key(int64_t n, int64_t batch, int direction) {
-    return std::to_string(n) + "_" + std::to_string(batch) + "_" + std::to_string(direction);
-}
-
-static cufftHandle acquire_plan(int64_t n, int64_t batch, int direction) {
-    std::string key = cache_key(n, batch, direction);
-
-    {
-        std::lock_guard<std::mutex> lk(g_cache_mutex);
-        auto it = g_plan_cache.find(key);
-        if (it != g_plan_cache.end()) return it->second.plan;
+    static std::string make_key(int64_t n, int64_t batch, int direction) {
+        return std::to_string(n) + "_" + std::to_string(batch) + "_" + std::to_string(direction);
     }
 
-    CachedPlan entry{};
-    CUFFT_CHECK(cufftCreate(&entry.plan));
+    static cufftHandle acquire(int64_t n, int64_t batch, int direction) {
+        std::string key = make_key(n, batch, direction);
 
-    long long fft_n = n;
-    long long fft_batch = batch;
-    size_t ws = 0;
-
-    CUFFT_CHECK(cufftXtMakePlanMany(
-        entry.plan,
-        1,              // rank
-        &fft_n,         // n
-        nullptr,        // inembed
-        1,              // istride
-        n,              // idist
-        CUDA_C_16F,     // input type
-        nullptr,        // onembed
-        1,              // ostride
-        n,              // odist
-        CUDA_C_16F,     // output type
-        fft_batch,      // batch
-        &ws,            // workSize
-        CUDA_C_16F));   // exec type
-
-    if (ws > 0) {
-        CUDA_CHECK(cudaMalloc(&entry.workspace, ws));
-        CUFFT_CHECK(cufftXtSetWorkArea(entry.plan, &entry.workspace));
-    }
-    entry.workspace_bytes = ws;
-
-    {
-        std::lock_guard<std::mutex> lk(g_cache_mutex);
-        auto it = g_plan_cache.find(key);
-        if (it != g_plan_cache.end()) {
-            // lost the race — discard ours
-            if (entry.workspace) cudaFree(entry.workspace);
-            cufftDestroy(entry.plan);
-            return it->second.plan;
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            auto it = plans.find(key);
+            if (it != plans.end()) return it->second.plan;
         }
-        // Evict before inserting so the new entry survives the flush
-        if (g_plan_cache.size() >= kMaxCacheEntries) {
-            for (auto& [k, e] : g_plan_cache) {
-                cufftDestroy(e.plan);
-                if (e.workspace) cudaFree(e.workspace);
+
+        CachedPlan entry{};
+        CUFFT_CHECK(cufftCreate(&entry.plan));
+
+        long long fft_n = n;
+        long long fft_batch = batch;
+        size_t ws = 0;
+
+        CUFFT_CHECK(cufftXtMakePlanMany(
+            entry.plan, 1, &fft_n, nullptr, 1, n, DType,
+            nullptr, 1, n, DType, fft_batch, &ws, DType));
+
+        if (ws > 0) {
+            CUDA_CHECK(cudaMalloc(&entry.workspace, ws));
+            CUFFT_CHECK(cufftXtSetWorkArea(entry.plan, &entry.workspace));
+        }
+        entry.workspace_bytes = ws;
+
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            auto it = plans.find(key);
+            if (it != plans.end()) {
+                if (entry.workspace) cudaFree(entry.workspace);
+                cufftDestroy(entry.plan);
+                return it->second.plan;
             }
-            g_plan_cache.clear();
+            if (plans.size() >= kMaxCacheEntries) {
+                for (auto& [k, e] : plans) {
+                    cufftDestroy(e.plan);
+                    if (e.workspace) cudaFree(e.workspace);
+                }
+                plans.clear();
+            }
+            plans[key] = entry;
         }
-        g_plan_cache[key] = entry;
+        return entry.plan;
     }
-    return entry.plan;
-}
+
+    static void cleanup() {
+        std::lock_guard<std::mutex> lk(mtx);
+        for (auto& [key, entry] : plans) {
+            cufftDestroy(entry.plan);
+            if (entry.workspace) cudaFree(entry.workspace);
+        }
+        plans.clear();
+    }
+};
+
+template<cufftType DType>
+std::unordered_map<std::string, CachedPlan> PlanCache<DType>::plans;
+template<cufftType DType>
+std::mutex PlanCache<DType>::mtx;
 
 // ─── Forward / inverse ──────────────────────────────────────────────
 static torch::Tensor fft_fp16_impl(torch::Tensor input, int direction) {
@@ -116,7 +119,7 @@ static torch::Tensor fft_fp16_impl(torch::Tensor input, int direction) {
 
     auto output = torch::empty_like(input);
 
-    cufftHandle plan = acquire_plan(n, batch, direction);
+    cufftHandle plan = PlanCache<CUDA_C_16F>::acquire(n, batch, direction);
 
     // c10::complex<at::Half> is bit-compatible with cuFFT FP16 interleaved
     CUFFT_CHECK(cufftXtExec(plan, (void*)input.data_ptr(), (void*)output.data_ptr(), direction));
@@ -130,72 +133,6 @@ torch::Tensor fft_fp16_forward(torch::Tensor input) {
 
 torch::Tensor ifft_fp16_forward(torch::Tensor input) {
     return fft_fp16_impl(input, CUFFT_INVERSE);
-}
-
-// ─── BF16 plan cache ────────────────────────────────────────────────
-static std::unordered_map<std::string, CachedPlan> g_plan_cache_bf16;
-static std::mutex g_cache_mutex_bf16;
-
-static std::string cache_key_bf16(int64_t n, int64_t batch, int direction) {
-    return std::to_string(n) + "_" + std::to_string(batch) + "_" + std::to_string(direction) + "_bf16";
-}
-
-static cufftHandle acquire_plan_bf16(int64_t n, int64_t batch, int direction) {
-    std::string key = cache_key_bf16(n, batch, direction);
-
-    {
-        std::lock_guard<std::mutex> lk(g_cache_mutex_bf16);
-        auto it = g_plan_cache_bf16.find(key);
-        if (it != g_plan_cache_bf16.end()) return it->second.plan;
-    }
-
-    CachedPlan entry{};
-    CUFFT_CHECK(cufftCreate(&entry.plan));
-
-    long long fft_n = n;
-    long long fft_batch = batch;
-    size_t ws = 0;
-
-    CUFFT_CHECK(cufftXtMakePlanMany(
-        entry.plan,
-        1,
-        &fft_n,
-        nullptr,
-        1,
-        n,
-        CUDA_C_16BF,
-        nullptr,
-        1,
-        n,
-        CUDA_C_16BF,
-        fft_batch,
-        &ws,
-        CUDA_C_16BF));
-
-    if (ws > 0) {
-        CUDA_CHECK(cudaMalloc(&entry.workspace, ws));
-        CUFFT_CHECK(cufftXtSetWorkArea(entry.plan, &entry.workspace));
-    }
-    entry.workspace_bytes = ws;
-
-    {
-        std::lock_guard<std::mutex> lk(g_cache_mutex_bf16);
-        auto it = g_plan_cache_bf16.find(key);
-        if (it != g_plan_cache_bf16.end()) {
-            if (entry.workspace) cudaFree(entry.workspace);
-            cufftDestroy(entry.plan);
-            return it->second.plan;
-        }
-        if (g_plan_cache_bf16.size() >= kMaxCacheEntries) {
-            for (auto& [k, e] : g_plan_cache_bf16) {
-                cufftDestroy(e.plan);
-                if (e.workspace) cudaFree(e.workspace);
-            }
-            g_plan_cache_bf16.clear();
-        }
-        g_plan_cache_bf16[key] = entry;
-    }
-    return entry.plan;
 }
 
 // ─── BF16 forward / inverse ─────────────────────────────────────────
@@ -214,7 +151,7 @@ static torch::Tensor fft_bf16_impl(torch::Tensor input, int direction) {
 
     auto output = torch::empty_like(input);
 
-    cufftHandle plan = acquire_plan_bf16(n, batch, direction);
+    cufftHandle plan = PlanCache<CUDA_C_16BF>::acquire(n, batch, direction);
 
     CUFFT_CHECK(cufftXtExec(plan, (void*)input.data_ptr(), (void*)output.data_ptr(), direction));
 
@@ -231,19 +168,8 @@ torch::Tensor ifft_bf16_forward(torch::Tensor input) {
 
 // ─── Module cleanup ─────────────────────────────────────────────────
 static void cleanup_plans() {
-    std::lock_guard<std::mutex> lk(g_cache_mutex);
-    for (auto& [key, entry] : g_plan_cache) {
-        cufftDestroy(entry.plan);
-        if (entry.workspace) cudaFree(entry.workspace);
-    }
-    g_plan_cache.clear();
-
-    std::lock_guard<std::mutex> lk2(g_cache_mutex_bf16);
-    for (auto& [key, entry] : g_plan_cache_bf16) {
-        cufftDestroy(entry.plan);
-        if (entry.workspace) cudaFree(entry.workspace);
-    }
-    g_plan_cache_bf16.clear();
+    PlanCache<CUDA_C_16F>::cleanup();
+    PlanCache<CUDA_C_16BF>::cleanup();
 }
 
 // ─── pybind11 ───────────────────────────────────────────────────────

@@ -3,7 +3,9 @@ from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
 # Point to CUDA Toolkit 13.3 (nvcc and headers)
-os.environ.setdefault("CUDA_HOME", "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3")
+# Prefer CUDA_HOME from environment, with Windows default as fallback
+_default_cuda = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3"
+os.environ.setdefault("CUDA_HOME", os.environ.get("CUDA_HOME", _default_cuda))
 
 ext_modules = [
     CUDAExtension(
