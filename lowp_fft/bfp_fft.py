@@ -6,68 +6,129 @@ over naive FP8 FFT. Pure Python/NumPy; no CUDA dependency.
 FP8 E4M3 format: 1 sign, 4 exponent (bias=7), 3 mantissa.
 Max normal: 448.0 (E=15, M=6).  NaN encoding: E=15, M=7 (clamped to 0).
 Min subnormal: 2^-9 ≈ 0.00195.
+
+Since Sprint 4.3: parameterized FP format support for ablation studies.
 """
 
 import numpy as np
 
-FP8_MAX = 448.0
+
+# ── FP Format Class ───────────────────────────────────────────────────
+
+class FPFormat:
+    """Configurable floating-point format with e_bits exponent, m_bits mantissa.
+
+    Parameters
+    ----------
+    e_bits : int
+        Number of exponent bits.
+    m_bits : int
+        Number of mantissa bits.
+    """
+
+    def __init__(self, e_bits, m_bits):
+        self.e_bits = e_bits
+        self.m_bits = m_bits
+        self.bias = (1 << (e_bits - 1)) - 1
+        self.n_levels = 1 << (1 + e_bits + m_bits)
+
+        max_e = (1 << e_bits) - 1
+        max_m = (1 << m_bits) - 1
+        m_scale = float(1 << m_bits)
+
+        # Max normal: e=max_e, m=max_m-1 (reserve e=max_e, m=max_m for NaN)
+        self.max_val = (2.0 ** (max_e - self.bias)) * (1.0 + (max_m - 1) / m_scale)
+
+        self._table, self._pos_vals, self._boundaries = self._build()
+
+    def _build(self):
+        max_e = (1 << self.e_bits) - 1
+        max_m = (1 << self.m_bits) - 1
+        m_scale = float(1 << self.m_bits)
+
+        vals = []
+        for bits in range(self.n_levels):
+            s = (bits >> (self.e_bits + self.m_bits)) & 1
+            e = (bits >> self.m_bits) & max_e
+            m = bits & max_m
+
+            if e == 0:
+                val = (2.0 ** (1 - self.bias)) * (m / m_scale)
+            else:
+                val = (2.0 ** (e - self.bias)) * (1.0 + m / m_scale)
+
+            if s:
+                val = -val
+            vals.append(val)
+
+        # NaN → 0
+        pos_nan = (max_e << self.m_bits) | max_m
+        neg_nan = pos_nan | (1 << (self.e_bits + self.m_bits))
+        vals[pos_nan] = 0.0
+        vals[neg_nan] = 0.0
+
+        table = np.array(vals, dtype=np.float64)
+        pos_vals = np.unique(np.sort(table[:self.n_levels // 2]))
+
+        boundaries = np.zeros(len(pos_vals))
+        boundaries[0] = 0.0
+        for i in range(1, len(pos_vals)):
+            boundaries[i] = (pos_vals[i - 1] + pos_vals[i]) / 2.0
+
+        return table, pos_vals, boundaries
+
+    def quantize_real(self, x):
+        """Quantize real float/array to nearest FP value."""
+        scalar = np.ndim(x) == 0
+        arr = np.atleast_1d(np.asarray(x, dtype=np.float64))
+        arr = np.clip(arr, -self.max_val, self.max_val)
+        sign = np.where(arr >= 0, 1.0, -1.0)
+        abs_arr = np.abs(arr)
+        idx = np.searchsorted(self._boundaries, abs_arr, side='right') - 1
+        idx = np.clip(idx, 0, len(self._pos_vals) - 1)
+        result = sign * self._pos_vals[idx]
+        result[abs_arr == 0] = 0.0
+        if scalar:
+            return float(result.flat[0])
+        return result
+
+    def quantize(self, x):
+        """Quantize float/complex scalar or array."""
+        is_complex = np.iscomplexobj(x)
+        if is_complex:
+            real_q = self.quantize_real(x.real)
+            imag_q = self.quantize_real(x.imag)
+            if np.ndim(x) == 0:
+                return complex(real_q, imag_q)
+            return real_q + 1j * imag_q
+        return self.quantize_real(x)
 
 
-# ── FP8 E4M3 Quantization ────────────────────────────────────────────
+# Default FP8 E4M3 instance
+FP8_E4M3 = FPFormat(4, 3)
+FP8_MAX = FP8_E4M3.max_val
+
+
+# ── Backward-compatible module-level state (from FP8_E4M3) ─────────────
 
 def _build_fp8_table():
-    """Build sorted array of all 256 FP8 E4M3 values."""
-    vals = []
-    for bits in range(256):
-        s = (bits >> 7) & 1
-        e = (bits >> 3) & 0xF
-        m = bits & 0x7
-        if e == 0:
-            val = (2.0 ** (-6)) * (m / 8.0)
-        else:
-            val = (2.0 ** (e - 7)) * (1.0 + m / 8.0)
-        if s:
-            val = -val
-        vals.append(val)
-    vals[0xFF] = 0.0  # negative NaN → 0
-    vals[0x7F] = 0.0  # positive NaN → 0
-    return np.array(vals, dtype=np.float64)
+    """Build sorted array of all 256 FP8 E4M3 values (backward compat)."""
+    return FP8_E4M3._table.copy()
 
 
-_FP8_TABLE = _build_fp8_table()
-_POS_VALS = np.unique(np.sort(_FP8_TABLE[0:128]))
-_BOUNDARIES = np.zeros(len(_POS_VALS))
-_BOUNDARIES[0] = 0.0
-for _i in range(1, len(_POS_VALS)):
-    _BOUNDARIES[_i] = (_POS_VALS[_i - 1] + _POS_VALS[_i]) / 2.0
+_FP8_TABLE = FP8_E4M3._table
+_POS_VALS = FP8_E4M3._pos_vals
+_BOUNDARIES = FP8_E4M3._boundaries
 
 
 def _quantize_real(x):
-    """Quantize real float/array to nearest FP8 E4M3 via searchsorted."""
-    scalar = np.ndim(x) == 0
-    arr = np.atleast_1d(np.asarray(x, dtype=np.float64))
-    arr = np.clip(arr, -FP8_MAX, FP8_MAX)
-    sign = np.where(arr >= 0, 1.0, -1.0)
-    abs_arr = np.abs(arr)
-    idx = np.searchsorted(_BOUNDARIES, abs_arr, side='right') - 1
-    idx = np.clip(idx, 0, len(_POS_VALS) - 1)
-    result = sign * _POS_VALS[idx]
-    result[abs_arr == 0] = 0.0
-    if scalar:
-        return float(result.flat[0])
-    return result
+    """Quantize real float/array to nearest FP8 E4M3 (backward compat)."""
+    return FP8_E4M3.quantize_real(x)
 
 
 def quantize_fp8_e4m3(x):
-    """Quantize float/complex scalar or array to FP8 E4M3."""
-    is_complex = np.iscomplexobj(x)
-    if is_complex:
-        real_q = _quantize_real(x.real)
-        imag_q = _quantize_real(x.imag)
-        if np.ndim(x) == 0:
-            return complex(real_q, imag_q)
-        return real_q + 1j * imag_q
-    return _quantize_real(x)
+    """Quantize float/complex scalar or array to FP8 E4M3 (backward compat)."""
+    return FP8_E4M3.quantize(x)
 
 
 # ── Shared Exponent ──────────────────────────────────────────────────
@@ -110,26 +171,37 @@ def _bit_reverse_array(x):
 # ── BFP FFT ──────────────────────────────────────────────────────────
 
 class BFPFFT:
-    """Block Floating-Point Radix-2 DIT FFT in software FP8 (E4M3).
+    """Block Floating-Point Radix-2 DIT FFT with parameterized FP format.
 
     Each FFT stage shares one integer exponent. At the start of each stage,
     mantissas are dequantized to float64, all butterflies run in float,
-    then the stage outputs are quantized back to FP8 mantissas with a new
-    shared exponent. This limits FP8 quantization to once per value per
+    then the stage outputs are quantized back to FP mantissas with a new
+    shared exponent. This limits FP quantization to once per value per
     stage rather than once per arithmetic operation.
 
     Parameters
     ----------
     N : int
         FFT size (must be a power of 2).
+    e_bits : int, default 4
+        Number of exponent bits in the FP format.
+    m_bits : int, default 3
+        Number of mantissa bits in the FP format.
     """
 
-    def __init__(self, N):
+    def __init__(self, N, e_bits=4, m_bits=3):
         if N & (N - 1) != 0:
             raise ValueError(f"N={N} must be a power of 2")
         self.N = N
         self.log2N = int(np.log2(N))
-        self.exponents = []  # populated during forward/inverse
+        self.e_bits = e_bits
+        self.m_bits = m_bits
+        self.fmt = FPFormat(e_bits, m_bits)
+        self.exponents = []
+
+    @property
+    def max_val(self):
+        return self.fmt.max_val
 
     def forward(self, x):
         """Compute BFP forward FFT.
@@ -142,7 +214,7 @@ class BFPFFT:
         Returns
         -------
         X : ndarray
-            Complex FFT result computed via FP8 BFP.
+            Complex FFT result computed via BFP.
         """
         return self._run(x, inverse=False)
 
@@ -156,17 +228,18 @@ class BFPFFT:
             raise ValueError(f"Input length {len(x)} != N={self.N}")
         N = self.N
         self.exponents = []
+        fp8_max = self.fmt.max_val
 
         # 1. Bit-reversal permutation
         x = _bit_reverse_array(x)
 
         # 2. Initial BFP encoding: quantize input to mantissa + exponent
-        E = compute_shared_exponent(x)
+        E = compute_shared_exponent(x, fp8_max=fp8_max)
         self.exponents.append(E)
         scale = 2.0 ** E
         for i in range(N):
-            x[i] = quantize_fp8_e4m3(x[i].real / scale) + \
-                   1j * quantize_fp8_e4m3(x[i].imag / scale)
+            x[i] = self.fmt.quantize(x[i].real / scale) + \
+                   1j * self.fmt.quantize(x[i].imag / scale)
 
         # 3. Stage-by-stage butterfly
         step = 1
@@ -182,7 +255,7 @@ class BFPFFT:
             for i in range(N):
                 x[i] = x[i] * scale_in
 
-            # Run all butterflies in float64 (no per-op FP8 quantization)
+            # Run all butterflies in float64 (no per-op FP quantization)
             for group in range(0, N, jump):
                 w = 1.0 + 0.0j
                 for pair in range(step):
@@ -194,13 +267,13 @@ class BFPFFT:
                     x[idx_b] = A - w * B
                     w = w * twiddle_base
 
-            # After stage: compute new shared exponent, quantize to FP8 mantissas
-            E = compute_shared_exponent(x)
+            # After stage: compute new shared exponent, quantize to FP mantissas
+            E = compute_shared_exponent(x, fp8_max=fp8_max)
             self.exponents.append(E)
             scale_out = 2.0 ** E
             for i in range(N):
-                x[i] = quantize_fp8_e4m3(x[i].real / scale_out) + \
-                       1j * quantize_fp8_e4m3(x[i].imag / scale_out)
+                x[i] = self.fmt.quantize(x[i].real / scale_out) + \
+                       1j * self.fmt.quantize(x[i].imag / scale_out)
 
             step = jump
 
