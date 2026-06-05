@@ -113,8 +113,8 @@ block floating-point 的共享指数机制对多音信号的量化误差有额�
 ### 5. impulse 退化说明
 
 impulse 信号在所有精度和所有 N 下给出相同 SQNR (424–436 dB),
-这是退化 case — 单非零样本的 FFT 无累加舍入误差, SQNR 由纯能量公式
-10·log₁₀(3N) 决定。实际使用中不可依赖此值。
+这是退化 case — 单非零样本的 FFT 无累加舍入误差, SQNR scales as 10·log₁₀(N) — signal energy grows with N while
+residual is bounded by FP64 numerical noise floor。实际使用中不可依赖此值。
 
 ---
 
