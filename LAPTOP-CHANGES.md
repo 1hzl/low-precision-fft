@@ -1,5 +1,38 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-05: Task 1d — 三精度 SQNR 合并汇总
+
+### 产出 ✅
+
+- [x] `data/sqn-all-summary.md` — 三精度 SQNR 并列对比文档
+- [x] 主表: N × Signal × Precision 的 SQNR (mean ± std)，20 行全覆盖
+- [x] N 衰减趋势 ASCII 文字图: FP16/BF16/BFP FP8 各一份
+- [x] Key findings: 精度层级、信号类型影响、BF16 宽指数域优势、BFP 共享指数收益、impulse 退化说明
+- [x] impulse 行 `*` 标注 + 脚注 (退化 case)
+
+### 数据来源
+
+- `data/sqn-fp16-stats.csv`
+- `data/sqn-bf16-stats.csv`
+- `data/sqn-bfp-stats.csv`
+
+### Key findings summary
+
+| Precision | SQNR Range | N-decay |
+|-----------|-----------|---------|
+| FP16 | 56.5–61.6 dB | decays ~5 dB (256→4096), N≥4096 accelerates |
+| BF16 | 53.0–54.5 dB | flat, no decay (8-bit exponent advantage) |
+| BFP FP8 | 20.4–23.4 dB | gentle decay ~0.5 dB/doubling |
+
+- multitone > uniform/normal across all precisions
+- impulse is degenerate (constant FFT output, SQNR = 10·log₁₀(3N) dB)
+
+### 验收
+
+- [x] 一份 md 文件，三精度并列对比
+- [x] impulse 行 `*` 标注 + 脚注
+- [x] 关键发现写在表下方
+
 ## 2026-06-05: Task 1c — BFP FP8 SQNR Statistics (mean ± std)
 
 ### Benchmark ✅
