@@ -40,4 +40,5 @@
 - [x] 4.2.4 BFP 边界测试 (DC/极值/全零/N=2,4)
 - [x] 4.2.5 README 更新
 - [x] 4.3 BFP 消融：尾数位宽（mantissa bits）
+- [x] 4.4 BFP 消融：指数共享粒度（group size）
 

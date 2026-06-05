@@ -1,5 +1,37 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-06: Task 2b — BFP Group-Size Ablation Study
+
+### 实现
+
+- [x] `lowp_fft/bfp_fft.py`: `BFPFFT` 新增 `group_size` 参数，支持 per-group-4/per-group-8 指数共享
+- [x] `tests/bench_bfp_ablation_group_size.py`: 9 组合 benchmark 脚本 (3 granularities × 3 signals)
+- [x] 全部 36 个已有测试通过（向后兼容）
+
+### 结果 (N=1024, E4M3, 100 trials)
+
+| Config | uniform | normal | multitone |
+|--------|---------|--------|-----------|
+| per-stage | 21.17 ± 0.16 | 21.45 ± 0.14 | 22.45 ± 0.57 |
+| per-group-4 | 21.17 ± 0.16 | 21.45 ± 0.14 | 22.45 ± 0.57 |
+| per-group-8 | 21.17 ± 0.16 | 21.45 ± 0.14 | 22.45 ± 0.57 |
+
+### 关键发现
+
+1. **三种粒度 SQNR 完全相同** — 差异 < 1e-8 dB，属浮点累积噪声
+2. **per-stage 已经是最优选择** — 无需增加 exponent 存储开销
+3. **为何？** Radix-2 DIT FFT 自然解相关，每级蝶形运算后相邻元素动态范围已接近全数组
+4. **3-bit mantissa 是瓶颈** — 即使逐元素独立指数也无法突破尾数精度限制
+5. **per-stage = 更少存储, 相同精度** — 没有精度-效率权衡，粗粒度严格更优
+
+### 输出文件
+
+- `data/ablation-group-size.csv` — 9 rows (3 configs × 3 signals)
+- `data/ablation-group-size.md` — Report with findings
+- `tests/bench_bfp_ablation_group_size.py` — Benchmark script
+- `lowp_fft/bfp_fft.py` — Modified with group_size parameter
+- `TODO.md` — Task 4.4 marked [x]
+
 ## 2026-06-06: Task 2a — BFP Mantissa-Bit Ablation Study
 
 ### 实现
