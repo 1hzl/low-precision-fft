@@ -29,7 +29,8 @@
 | 4096 | multitone | 56.5 ± 0.62 | 53.4 ± 0.77 | 21.9 ± 0.38 |
 | 4096 | impulse * | 436.1 ± 0.00 | 436.1 ± 0.00 | 436.1 ± 0.00 |
 
-\* **impulse 退化 case** — 单非零样本, 无累加误差, SQNR 由能量公式解析决定 (≈ 3 + 10·log₁₀(N) dB)。
+\* **impulse 退化 case** — 单非零样本, 无累加误差, SQNR scales as 10·log₁₀(N) — signal energy grows with N while
+  residual is limited by FP64 numerical noise floor (~constant)。
   在低精度 FFT 比较中不具代表性, 仅供完整性列出。
 
 ---
