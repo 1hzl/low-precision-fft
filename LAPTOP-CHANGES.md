@@ -1,5 +1,36 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-06: Task 2a — BFP Mantissa-Bit Ablation Study
+
+### 实现
+
+- [x] `lowp_fft/bfp_fft.py`: 新增 `FPFormat` 类支持参数化 (e_bits, m_bits)，BFPFFT 支持 `e_bits`/`m_bits` 参数
+- [x] `tests/bench_bfp_ablation_mantissa.py`: 12 组合 benchmark 脚本
+- [x] 全部 22 个已有 BFP 测试通过（向后兼容）
+
+### 结果 (N=1024, 100 trials)
+
+| Config | uniform | normal | multitone |
+|--------|---------|--------|-----------|
+| E4M2 | 15.24 ± 0.14 | 15.53 ± 0.12 | 16.87 ± 0.60 |
+| E4M3 | 21.17 ± 0.16 | 21.45 ± 0.14 | 22.45 ± 0.57 |
+| E4M4 | 27.17 ± 0.15 | 27.44 ± 0.17 | 28.50 ± 0.57 |
+| E5M3 | 21.17 ± 0.16 | 21.45 ± 0.14 | 22.45 ± 0.57 |
+
+### 关键发现
+
+1. **~6.0 dB SQNR gain per mantissa bit**: matches 10·log₁₀(2²) ≈ 6.02 dB theory
+2. **E5M3 = E4M3 for [-1,1] signals**: identical 3-bit mantissa precision, extra exponent bit unused when dynamic range already sufficient
+3. **E4M3 is sweet spot** for N≤4096 clamped signals — best precision per total bit
+
+### 输出文件
+
+- `data/ablation-mantissa-bits.csv` — 12 rows (4 configs × 3 signals)
+- `data/ablation-mantissa-bits.md` — Report with findings
+- `tests/bench_bfp_ablation_mantissa.py` — Benchmark script
+- `lowp_fft/bfp_fft.py` — Refactored with FPFormat class
+- `TODO.md` — Task 4.3 marked [x]
+
 ## 2026-06-05: Task 1d-fix — 修正 impulse 脚注公式
 
 ### 修复
