@@ -1,5 +1,51 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-05: Task 1b — BF16 SQNR Statistics (mean ± std)
+
+### Benchmark ✅
+
+- [x] `tests/bench_sqn_bf16_stats.py`: 5 N × 4 signals × 100 trials = 2,000 FFTs
+- [x] SQNR = 10*log10(||X_ref||^2 / ||X_ref - alpha*X_test||^2) with optimal complex alpha (Bergach 2026 §IV-B)
+- [x] BF16 cuFFT via lowp_fft.fft(precision="bf16") vs FP64 torch.fft.fft reference
+- [x] Methodology identical to Task 1a (FP16), enabling direct comparison
+
+### Results
+
+| Signal | N=256 | N=512 | N=1024 | N=2048 | N=4096 |
+|--------|-------|-------|--------|--------|--------|
+| uniform | 53.09 ± 0.31 | 53.04 ± 0.19 | 53.06 ± 0.15 | 53.09 ± 0.10 | 53.07 ± 0.07 |
+| normal | 54.47 ± 0.30 | 54.44 ± 0.19 | 54.40 ± 0.15 | 54.38 ± 0.11 | 54.42 ± 0.08 |
+| multitone | 53.48 ± 0.77 | 53.43 ± 0.82 | 53.40 ± 0.79 | 53.52 ± 0.82 | 53.41 ± 0.77 |
+| impulse* | 424.08 ± 0.00 | 427.09 ± 0.00 | 430.10 ± 0.00 | 433.11 ± 0.00 | 436.12 ± 0.00 |
+
+\* Degenerate case — FFT of δ(t) is constant, SQNR reflects FP64 noise floor, not actual precision
+
+### BF16 vs FP16 Comparison (both vs FP64 reference)
+
+| Signal | 256 | 512 | 1024 | 2048 | 4096 |
+|--------|-----|-----|------|------|------|
+| FP16 uniform | 61.28 | 60.57 | 59.91 | 59.35 | 56.47 |
+| BF16 uniform | 53.09 | 53.04 | 53.06 | 53.09 | 53.07 |
+| Δ (FP16−BF16) | -8.19 | -7.53 | -6.85 | -6.26 | -3.40 |
+| FP16 normal | 61.56 | 60.78 | 60.11 | 59.52 | 56.53 |
+| BF16 normal | 54.47 | 54.44 | 54.40 | 54.38 | 54.42 |
+| Δ (FP16−BF16) | -7.09 | -6.34 | -5.71 | -5.14 | -2.11 |
+
+### Key findings
+
+1. **BF16 SQNR ≈ 53-54 dB for non-impulse signals** — ~6-8 dB below FP16 (56-61 dB), consistent with 3 fewer mantissa bits (7 vs 10)
+2. **BF16 SQNR does NOT decay with N** — unlike FP16 (61.3→56.5 dB), BF16 stays flat at 53.1 dB across N=256→4096. BF16's 8-bit exponent provides superior dynamic range protection against cumulative rounding error
+3. **FP16 advantage shrinks with N**: Δ from -8.2 dB (N=256) to -3.4 dB (N=4096) — at large N, FP16's mantissa advantage is offset by more accumulated error stages
+4. **Normal signal is ~1 dB better** than uniform/multitone in BF16 (54.4 vs 53.1 dB)
+5. **Multitone has higher variance** (std ~0.8 dB) due to random frequency positions per trial, same behavior as FP16
+6. **Impulse is degenerate** (same as FP16): FFT output is constant, exact representation → >400 dB SQNR meaningless
+
+### Output files
+
+- `data/sqn-bf16-stats.csv` — 20 rows (5 N × 4 signals) with sqnr_mean, sqnr_std, trials
+- `data/sqn-bf16-stats.md` — Readable summary with by-N and by-signal aggregation
+- `tests/bench_sqn_bf16_stats.py` — Benchmark script
+
 ## 2026-06-05: Task 1a — FP16 SQNR Statistics (mean ± std)
 
 ### Benchmark ✅
