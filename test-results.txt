@@ -1,0 +1,171 @@
+============================= test session starts =============================
+platform win32 -- Python 3.14.4, pytest-9.0.3, pluggy-1.6.0 -- C:\Python314\python.exe
+cachedir: .pytest_cache
+rootdir: D:\cc\low-precision-fft
+plugins: anyio-4.13.0, langsmith-0.8.8
+collecting ... collected 114 items
+
+tests/test_autograd.py::TestFFTFP16::test_forward_shape PASSED           [  0%]
+tests/test_autograd.py::TestFFTFP16::test_forward_no_nan PASSED          [  1%]
+tests/test_autograd.py::TestFFTFP16::test_backward_grad_shape PASSED     [  2%]
+tests/test_autograd.py::TestFFTFP16::test_gradcheck_small SKIPPED (F...) [  3%]
+tests/test_autograd.py::TestFFTFP16::test_gradient_vs_fp32_fft PASSED    [  4%]
+tests/test_autograd.py::TestIFFTFP16::test_forward_shape PASSED          [  5%]
+tests/test_autograd.py::TestIFFTFP16::test_forward_no_nan PASSED         [  6%]
+tests/test_autograd.py::TestIFFTFP16::test_backward_grad_shape PASSED    [  7%]
+tests/test_autograd.py::TestIFFTFP16::test_gradcheck_small SKIPPED (...) [  7%]
+tests/test_autograd.py::TestIFFTFP16::test_gradient_vs_fp32_ifft PASSED  [  8%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp32_fft[backward] PASSED [  9%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp32_fft[ortho] PASSED  [ 10%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp32_fft[forward] PASSED [ 11%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp16_fft[backward] PASSED [ 12%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp16_fft[ortho] PASSED  [ 13%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp16_fft[forward] PASSED [ 14%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp16_ifft[backward] PASSED [ 14%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp16_ifft[ortho] PASSED [ 15%]
+tests/test_autograd.py::TestPublicAPI::test_norm_fp16_ifft[forward] PASSED [ 16%]
+tests/test_autograd.py::TestPublicAPI::test_n1_fft PASSED                [ 17%]
+tests/test_autograd.py::TestPublicAPI::test_n1_fp16_fft PASSED           [ 18%]
+tests/test_autograd.py::TestPublicAPI::test_n_padding_fft PASSED         [ 19%]
+tests/test_autograd.py::TestPublicAPI::test_n_truncate_fft PASSED        [ 20%]
+tests/test_autograd.py::TestPublicAPI::test_dim0_fft PASSED              [ 21%]
+tests/test_autograd.py::TestPublicAPI::test_bf16_fft_shape PASSED        [ 21%]
+tests/test_autograd.py::TestPublicAPI::test_bf16_ifft_shape PASSED       [ 22%]
+tests/test_autograd.py::TestPublicAPI::test_cpu_fp32_fallback PASSED     [ 23%]
+tests/test_autograd.py::TestPublicAPI::test_cpu_fp16_fallback PASSED     [ 24%]
+tests/test_autograd.py::TestPublicAPI::test_fp16_fallback_n_notnone PASSED [ 25%]
+tests/test_autograd.py::TestPublicAPI::test_fp16_fallback_dim PASSED     [ 26%]
+tests/test_autograd.py::TestPublicAPI::test_empty_tensor_raises PASSED   [ 27%]
+tests/test_autograd.py::TestRoundtrip::test_fft_ifft_identity PASSED     [ 28%]
+tests/test_autograd.py::TestRoundtrip::test_roundtrip_gradient PASSED    [ 28%]
+tests/test_autograd.py::TestPlanCacheEviction::test_many_unique_sizes_no_crash FAILED [ 29%]
+tests/test_autograd.py::TestPlanCacheEviction::test_eviction_does_not_corrupt_plan FAILED [ 30%]
+tests/test_autograd.py::TestInvalidNormWarning::test_invalid_norm_warns_fft PASSED [ 31%]
+tests/test_autograd.py::TestInvalidNormWarning::test_invalid_norm_warns_ifft PASSED [ 32%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_random[256] PASSED [ 33%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_random[512] PASSED [ 34%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_random[1024] PASSED [ 35%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_random[2048] PASSED [ 35%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_random[4096] PASSED [ 36%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_multitone[256] PASSED [ 37%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_multitone[1024] PASSED [ 38%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_multitone[4096] PASSED [ 39%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_chirp[256] PASSED [ 40%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_chirp[1024] PASSED [ 41%]
+tests/test_bf16.py::TestBF16ForwardCorrectness::test_bf16_vs_fp32_chirp[4096] PASSED [ 42%]
+tests/test_bf16.py::TestBF16Roundtrip::test_roundtrip_random[256] PASSED [ 42%]
+tests/test_bf16.py::TestBF16Roundtrip::test_roundtrip_random[512] PASSED [ 43%]
+tests/test_bf16.py::TestBF16Roundtrip::test_roundtrip_random[1024] PASSED [ 44%]
+tests/test_bf16.py::TestBF16Roundtrip::test_roundtrip_random[2048] PASSED [ 45%]
+tests/test_bf16.py::TestBF16Roundtrip::test_roundtrip_random[4096] PASSED [ 46%]
+tests/test_bf16.py::TestBF16Roundtrip::test_roundtrip_impulse PASSED     [ 47%]
+tests/test_bf16.py::TestBF16Gradcheck::test_fft_bf16_gradcheck SKIPPED   [ 48%]
+tests/test_bf16.py::TestBF16Gradcheck::test_ifft_bf16_gradcheck SKIPPED  [ 49%]
+tests/test_bf16.py::TestBF16Gradcheck::test_fft_bf16_backward_shape PASSED [ 50%]
+tests/test_bf16.py::TestBF16Gradcheck::test_ifft_bf16_backward_shape PASSED [ 50%]
+tests/test_bf16.py::TestBF16Gradcheck::test_bf16_gradient_vs_fp32_fft PASSED [ 51%]
+tests/test_bf16.py::TestBF16Throughput::test_bf16_vs_fp16_vs_fp32[256] PASSED [ 52%]
+tests/test_bf16.py::TestBF16Throughput::test_bf16_vs_fp16_vs_fp32[1024] PASSED [ 53%]
+tests/test_bf16.py::TestBF16Throughput::test_bf16_vs_fp16_vs_fp32[4096] PASSED [ 54%]
+tests/test_bf16.py::TestBF16VsFP64::test_bf16_vs_fp64[256] PASSED        [ 55%]
+tests/test_bf16.py::TestBF16VsFP64::test_bf16_vs_fp64[512] PASSED        [ 56%]
+tests/test_bf16.py::TestBF16VsFP64::test_bf16_vs_fp64[1024] PASSED       [ 57%]
+tests/test_bf16.py::TestBF16VsFP64::test_bf16_vs_fp64[2048] PASSED       [ 57%]
+tests/test_bf16.py::TestBF16VsFP64::test_bf16_vs_fp64[4096] PASSED       [ 58%]
+tests/test_bf16.py::TestBF16EdgeCases::test_n1 PASSED                    [ 59%]
+tests/test_bf16.py::TestBF16EdgeCases::test_grad_enabled_vs_no_grad PASSED [ 60%]
+tests/test_bf16.py::TestBF16EdgeCases::test_cpu_fallback PASSED          [ 61%]
+tests/test_bf16.py::TestBF16EdgeCases::test_batched PASSED               [ 62%]
+tests/test_bf16.py::TestBF16EdgeCases::test_bf16_public_api PASSED       [ 63%]
+tests/test_bf16.py::TestBF16NormModes::test_fft_norm[backward] PASSED    [ 64%]
+tests/test_bf16.py::TestBF16NormModes::test_fft_norm[ortho] PASSED       [ 64%]
+tests/test_bf16.py::TestBF16NormModes::test_fft_norm[forward] PASSED     [ 65%]
+tests/test_bf16.py::TestBF16NormModes::test_ifft_norm[backward] PASSED   [ 66%]
+tests/test_bf16.py::TestBF16NormModes::test_ifft_norm[ortho] PASSED      [ 67%]
+tests/test_bf16.py::TestBF16NormModes::test_ifft_norm[forward] PASSED    [ 68%]
+tests/test_bfp_cuda.py::TestBFPCUDABasics::test_exe_exists PASSED        [ 69%]
+tests/test_bfp_cuda.py::TestBFPCUDABasics::test_exe_runs PASSED          [ 70%]
+tests/test_bfp_cuda.py::TestBFPCUDABasics::test_produces_results PASSED  [ 71%]
+tests/test_bfp_cuda.py::TestBFPCUDAStability::test_sqnr_minimum[256] PASSED [ 71%]
+tests/test_bfp_cuda.py::TestBFPCUDAStability::test_sqnr_minimum[512] PASSED [ 72%]
+tests/test_bfp_cuda.py::TestBFPCUDAStability::test_sqnr_minimum[1024] PASSED [ 73%]
+tests/test_bfp_cuda.py::TestBFPCUDAStability::test_sqnr_minimum[2048] PASSED [ 74%]
+tests/test_bfp_cuda.py::TestBFPCUDAStability::test_sqnr_minimum[4096] PASSED [ 75%]
+tests/test_bfp_cuda.py::TestBFPCUDAvsPython::test_random_sqnr_match[256] PASSED [ 76%]
+tests/test_bfp_cuda.py::TestBFPCUDAvsPython::test_random_sqnr_match[512] PASSED [ 77%]
+tests/test_bfp_cuda.py::TestBFPCUDAvsPython::test_random_sqnr_match[1024] PASSED [ 78%]
+tests/test_bfp_cuda.py::TestBFPCUDAvsPython::test_random_sqnr_match[2048] PASSED [ 78%]
+tests/test_bfp_cuda.py::TestBFPCUDAvsPython::test_random_sqnr_match[4096] PASSED [ 79%]
+tests/test_bfp_cuda.py::TestBFPCUDAExponents::test_all_n_run_without_error PASSED [ 80%]
+tests/test_bfp_fft.py::TestFP8Quantize::test_zero PASSED                 [ 81%]
+tests/test_bfp_fft.py::TestFP8Quantize::test_exact_representable PASSED  [ 82%]
+tests/test_bfp_fft.py::TestFP8Quantize::test_round_to_nearest PASSED     [ 83%]
+tests/test_bfp_fft.py::TestFP8Quantize::test_clamp_to_max PASSED         [ 84%]
+tests/test_bfp_fft.py::TestFP8Quantize::test_array_input PASSED          [ 85%]
+tests/test_bfp_fft.py::TestFP8Quantize::test_complex_array PASSED        [ 85%]
+tests/test_bfp_fft.py::TestSharedExponent::test_zero_values PASSED       [ 86%]
+tests/test_bfp_fft.py::TestSharedExponent::test_small_values PASSED      [ 87%]
+tests/test_bfp_fft.py::TestSharedExponent::test_large_values PASSED      [ 88%]
+tests/test_bfp_fft.py::TestBFPFFT::test_identity_small_n[8] PASSED       [ 89%]
+tests/test_bfp_fft.py::TestBFPFFT::test_identity_small_n[16] PASSED      [ 90%]
+tests/test_bfp_fft.py::TestBFPFFT::test_identity_small_n[32] PASSED      [ 91%]
+tests/test_bfp_fft.py::TestBFPFFT::test_identity_small_n[64] PASSED      [ 92%]
+tests/test_bfp_fft.py::TestBFPFFT::test_forward_shape PASSED             [ 92%]
+tests/test_bfp_fft.py::TestBFPFFT::test_against_fp32_reference PASSED    [ 93%]
+tests/test_bfp_fft.py::TestBFPFFT::test_exponents_monotonic PASSED       [ 94%]
+tests/test_bfp_fft.py::TestBFPFFT::test_power_of_two_only PASSED         [ 95%]
+tests/test_bfp_fft.py::TestBFPBoundary::test_dc_only_signal PASSED       [ 96%]
+tests/test_bfp_fft.py::TestBFPBoundary::test_extreme_dynamic_range PASSED [ 97%]
+tests/test_bfp_fft.py::TestBFPBoundary::test_all_zeros_input PASSED      [ 98%]
+tests/test_bfp_fft.py::TestBFPBoundary::test_minimum_legal_input[2] PASSED [ 99%]
+tests/test_bfp_fft.py::TestBFPBoundary::test_minimum_legal_input[4] PASSED [100%]
+
+================================== FAILURES ===================================
+____________ TestPlanCacheEviction.test_many_unique_sizes_no_crash ____________
+tests\test_autograd.py:367: in test_many_unique_sizes_no_crash
+    y = lowp_fft.fft(xc, precision="fp16")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lowp_fft\__init__.py:234: in fft
+    return _fp16_fft_impl(input_complex, n, dim, norm, "forward")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lowp_fft\__init__.py:72: in _fp16_fft_impl
+    result = cls.apply(contig)
+             ^^^^^^^^^^^^^^^^^
+C:\Users\25848\AppData\Roaming\Python\Python314\site-packages\torch\autograd\function.py:596: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lowp_fft\_autograd.py:27: in forward
+    result = _ext.fft_fp16_forward(input.contiguous())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   RuntimeError: cuFFT error 16 at D:\cc\low-precision-fft\lowp_fft\csrc\cufft_fp16.cu:76
+__________ TestPlanCacheEviction.test_eviction_does_not_corrupt_plan __________
+tests\test_autograd.py:386: in test_eviction_does_not_corrupt_plan
+    y = lowp_fft.fft(xc, precision="fp16")
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lowp_fft\__init__.py:234: in fft
+    return _fp16_fft_impl(input_complex, n, dim, norm, "forward")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lowp_fft\__init__.py:72: in _fp16_fft_impl
+    result = cls.apply(contig)
+             ^^^^^^^^^^^^^^^^^
+C:\Users\25848\AppData\Roaming\Python\Python314\site-packages\torch\autograd\function.py:596: in apply
+    return super().apply(*args, **kwargs)  # type: ignore[misc]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lowp_fft\_autograd.py:27: in forward
+    result = _ext.fft_fp16_forward(input.contiguous())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   RuntimeError: cuFFT error 16 at D:\cc\low-precision-fft\lowp_fft\csrc\cufft_fp16.cu:76
+============================== warnings summary ===============================
+tests/test_autograd.py::TestFFTFP16::test_forward_shape
+  D:\cc\low-precision-fft\tests\test_autograd.py:26: UserWarning: ComplexHalf support is experimental and many operators don't support it yet. (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\pytorch\aten\src\ATen\EmptyTensor.cpp:55.)
+    return torch.view_as_complex(x.reshape(*shape, 2)).to(torch.complex32)
+
+tests/test_bf16.py::TestBF16EdgeCases::test_cpu_fallback
+  D:\cc\low-precision-fft\lowp_fft\__init__.py:186: UserWarning: cuFFT BF16 fast path unavailable (input is not CUDA); falling back to torch.fft FP32 compute + BF16 truncate.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_autograd.py::TestPlanCacheEviction::test_many_unique_sizes_no_crash
+FAILED tests/test_autograd.py::TestPlanCacheEviction::test_eviction_does_not_corrupt_plan
+============ 2 failed, 108 passed, 4 skipped, 2 warnings in 16.73s ============

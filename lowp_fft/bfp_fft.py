@@ -11,7 +11,6 @@ Min subnormal: 2^-9 ≈ 0.00195.
 import numpy as np
 
 FP8_MAX = 448.0
-FP8_MIN_SUBNORMAL = 2.0 ** (-9)
 
 
 # ── FP8 E4M3 Quantization ────────────────────────────────────────────

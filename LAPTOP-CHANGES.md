@@ -775,3 +775,32 @@ Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
 - `README.md` — 更新 (完整项目文档)
 - `TODO.md` — 更新 (Sprint 4.2 → [x])
 - `build/bfp_fft.exe` — 重新编译 (含 inverse 支持)
+
+## 2026-06-05: 成果锁定 — 中期报告定稿前校验 ✅
+
+### 子任务 1 — 全量 pytest ✅
+
+- [x] 执行 `python -m pytest tests/ -v --tb=short` 并记录结果
+- [x] 结果保存至 `test-results.txt`
+- [x] 结果: **108 passed, 2 failed, 4 skipped, 2 warnings** (114 collected)
+- [x] 2 个失败为 pre-existing: `TestPlanCacheEviction` (cuFFT error 16 — 计划缓存驱逐时 plan 创建内部错误)
+- [x] 4 个 skipped: 2× FP16 gradcheck + 2× BF16 gradcheck (low-precision finite differences noisy, expected)
+
+### 子任务 2 — 6 个 P3 代码质量修复 ✅
+
+1. **`lowp_fft/__init__.py:221`** — fft() docstring: `"fp32", "fp16", or "bf16"` → `"fp32", "fp16", "bf16", or "fp8"`
+2. **`lowp_fft/__init__.py:199`** — `except Exception` 裸捕获 → `except (TypeError, RuntimeError, ValueError) as e`，错误消息包含原始异常
+3. **`lowp_fft/bfp_fft.py:14`** — `FP8_MIN_SUBNORMAL` 死代码 → 已删除（module docstring 已有 Min subnormal 文档）
+4. **`setup.py:6` + `build_ext.py:12`** — CUDA_HOME 硬编码路径 → 改为 `os.environ.setdefault("CUDA_HOME", os.environ.get("CUDA_HOME", _default_cuda))`，优先读环境变量
+5. **`lowp_fft/csrc/cufft_fp16.cu`** — BF16 plan cache 90% 重复 → 模板化为 `PlanCache<cufftType DType>`，FP16/BF16 共享代码。文件从 260 行减至 186 行 (-28%)
+6. **`src/cuda/bfp_fft.cu`** — forward/inverse 230 行镜像 → 提取为 `bfp_fft_run()` 共用 helper，forward/inverse 均调用它并传入 `inverse` 标志
+
+### 输出文件
+
+- `test-results.txt` — pytest 完整输出
+- `lowp_fft/__init__.py` — 修改 (docstring + exception)
+- `lowp_fft/bfp_fft.py` — 修改 (移除 FP8_MIN_SUBNORMAL)
+- `setup.py` — 修改 (CUDA_HOME env var 优先)
+- `build_ext.py` — 修改 (CUDA_HOME env var 优先)
+- `lowp_fft/csrc/cufft_fp16.cu` — 修改 (模板化 plan cache)
+- `src/cuda/bfp_fft.cu` — 修改 (提取共用 helper)
