@@ -1,5 +1,49 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-05: Task 1c — BFP FP8 SQNR Statistics (mean ± std)
+
+### Benchmark ✅
+
+- [x] `tests/bench_sqn_bfp_stats.py`: 5 N × 4 signals × 100 trials = 2,000 FFTs
+- [x] SQNR = 10*log10(||X_ref||^2 / ||X_ref - alpha*X_test||^2) with optimal complex alpha (Bergach 2026 §IV-B)
+- [x] BFP FP8 via `lowp_fft.bfp_fft.BFPFFT` (Python CPU prototype) vs FP64 `numpy.fft.fft` reference
+- [x] Methodology identical to Task 1a (FP16) and 1b (BF16), enabling direct comparison
+- [x] BFP is pure Python — N=4096 × 100 trials runs in ~125s per signal type
+
+### Results
+
+| Signal | N=256 | N=512 | N=1024 | N=2048 | N=4096 |
+|--------|-------|-------|--------|--------|--------|
+| uniform | 22.11 ± 0.31 | 21.61 ± 0.22 | 21.17 ± 0.16 | 20.81 ± 0.11 | 20.44 ± 0.07 |
+| normal | 22.46 ± 0.31 | 21.95 ± 0.23 | 21.45 ± 0.14 | 21.05 ± 0.11 | 20.68 ± 0.08 |
+| multitone | 23.37 ± 0.77 | 22.87 ± 0.62 | 22.45 ± 0.57 | 22.11 ± 0.49 | 21.92 ± 0.38 |
+| impulse* | 424.08 ± 0.00 | 427.09 ± 0.00 | 430.10 ± 0.00 | 433.11 ± 0.00 | 436.12 ± 0.00 |
+
+\* Degenerate case — FFT of δ(t) is constant, SQNR reflects FP64 noise floor, not actual precision
+
+### BFP FP8 vs BF16 vs FP16 Comparison (all vs FP64 reference, non-impulse)
+
+| Method | N=256 | N=4096 | N-scaling |
+|--------|-------|--------|-----------|
+| FP16 cuFFT | 61.3 dB | 56.5 dB | decays ~5 dB |
+| BF16 cuFFT | 53.1 dB | 53.1 dB | flat (no decay) |
+| **BFP FP8** | **22.2 dB** | **21.0 dB** | **decays ~1.2 dB** |
+
+### Key findings
+
+1. **BFP FP8 SQNR ≈ 20-23 dB for non-impulse signals** — ~30 dB below BF16, ~38 dB below FP16. Consistent with FP8 E4M3's 3-bit mantissa vs FP16's 10-bit vs BF16's 7-bit
+2. **BFP SQNR decays gently with N**: ~22.6 dB (N=256) → ~21.0 dB (N=4096), only ~1.7 dB drop across 16× size increase. Much better than naive FP8 (collapses to ~0 dB at N≥256), slightly worse than BF16 (flat)
+3. **Multitone is ~1 dB better** than uniform/normal (22.5 vs 21.5 dB avg) — sparse frequency content quantizes better in BFP format
+4. **std decreases with N**: from ~0.3 dB (N=256) to ~0.08 dB (N=4096) for uniform/normal — longer vectors average out per-sample noise
+5. **Multitone has higher variance** (std ~0.4-0.8 dB) due to random frequency positions per trial
+6. **Impulse is degenerate** (same as FP16/BF16): FFT output is constant, exact representation → >400 dB SQNR meaningless
+
+### Output files
+
+- `data/sqn-bfp-stats.csv` — 20 rows (5 N × 4 signals) with sqnr_mean, sqnr_std, trials
+- `data/sqn-bfp-stats.md` — Readable summary with by-N and by-signal aggregation
+- `tests/bench_sqn_bfp_stats.py` — Benchmark script
+
 ## 2026-06-05: Task 1b — BF16 SQNR Statistics (mean ± std)
 
 ### Benchmark ✅
