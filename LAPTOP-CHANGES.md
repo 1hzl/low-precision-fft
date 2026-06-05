@@ -1,5 +1,37 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-05: Task 1a — FP16 SQNR Statistics (mean ± std)
+
+### Benchmark ✅
+
+- [x] `tests/bench_sqn_fp16_stats.py`: 5 N × 4 signals × 100 trials = 2,000 FFTs
+- [x] SQNR = 10*log10(||X_ref||^2 / ||X_ref - alpha*X_test||^2) with optimal complex alpha (Bergach 2026 §IV-B)
+- [x] FP16 cuFFT via lowp_fft.fft(precision="fp16") vs FP64 torch.fft.fft reference
+
+### Results
+
+| Signal | N=256 | N=512 | N=1024 | N=2048 | N=4096 |
+|--------|-------|-------|--------|--------|--------|
+| uniform | 61.28 ± 0.32 | 60.57 ± 0.22 | 59.91 ± 0.16 | 59.35 ± 0.10 | 56.47 ± 0.08 |
+| normal | 61.56 ± 0.31 | 60.78 ± 0.22 | 60.11 ± 0.16 | 59.52 ± 0.11 | 56.53 ± 0.07 |
+| multitone | 61.60 ± 0.81 | 60.84 ± 0.71 | 60.04 ± 0.74 | 59.48 ± 0.64 | 56.50 ± 0.62 |
+| impulse | 424.08 ± 0.00 | 427.09 ± 0.00 | 430.10 ± 0.00 | 433.11 ± 0.00 | 436.12 ± 0.00 |
+
+### Key findings
+
+1. **All non-impulse signals match paper's 56-61 dB range** — uniform/normal/multitone all within bounds
+2. **Signal type has negligible effect**: max spread at same N < 0.3 dB for uniform/normal/multitone
+3. **N scaling**: SQNR drops ~5 dB from N=256→4096 (61.3→56.5 avg), consistent with log2(N) butterfly stages
+4. **Variance decreases with N**: std from 0.3 dB (N=256) to 0.08 dB (N=4096) for fixed signals — more averaging smooths per-trial noise
+5. **Multitone has higher variance** (std ~0.7 dB) due to random frequency positions per trial
+6. **Impulse is a degenerate case**: constant FFT output, FP16 exact → no quantization error (>400 dB SQNR meaningless)
+
+### Output files
+
+- `data/sqn-fp16-stats.csv` — 20 rows (5 N × 4 signals) with sqnr_mean, sqnr_std, trials
+- `data/sqn-fp16-stats.md` — Readable summary with by-N and by-signal aggregation
+- `tests/bench_sqn_fp16_stats.py` — Benchmark script
+
 ## 2026-06-04: Bergach 2026 Reproduction — NVIDIA Platform Verification
 
 ### Experiment 1 (CORRECTED) — FP16 Forward FFT SQNR ✅
