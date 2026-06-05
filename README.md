@@ -11,14 +11,17 @@ FFT implementations for PyTorch, targeting LLM fine-tuning with circulant adapte
 | Precision | Backend          | Bytes/elem | FFT  | IFFT | SQNR (typical, N=1024) |
 |-----------|------------------|------------|------|------|------------------------|
 | FP32      | torch.fft (cuFFT)| 8          | yes  | yes  | reference              |
-| FP16      | cuFFT Xt         | 4          | yes  | yes  | ~100 dB                |
-| BF16      | cuFFT Xt         | 4          | yes  | yes  | ~70 dB                 |
-| BFP FP8   | Custom CUDA      | 2          | yes  | yes  | ~40–45 dB              |
+| FP16      | cuFFT Xt         | 4          | yes  | yes  | 56–61 dB               |
+| BF16      | cuFFT Xt         | 4          | yes  | yes  | 53.1 dB                |
+| BFP FP8   | Custom CUDA      | 2          | yes  | yes  | 20–22 dB               |
 
 - **FP16/BF16** use native cuFFT Xt (SM_80+) via a PyTorch C++ extension with autograd support.
 - **BFP FP8** uses a custom block floating-point Radix-2 DIT FFT kernel where each stage shares
   one integer exponent. Butterflies run in float32, outputs are requantized to FP8 mantissas.
   A pure-Python CPU prototype is also available for experimentation.
+
+*SQNR measured against FP64 reference FFT on RTX 5070 Ti (SM_120, CUDA 13.3).*  
+*Sources: `docs/sprint-3.4-final-report.md` (FP16, BFP FP8), `LAPTOP-CHANGES.md` (BF16).*
 
 ## Installation
 
