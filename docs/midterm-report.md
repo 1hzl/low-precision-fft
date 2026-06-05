@@ -174,6 +174,16 @@ BFP FP8 CUDA 当前性能低于 FP16（~0.01×），因仍走 Python→CUDA 多�
 - BF16 在 SM_120 (Blackwell) 上的 cuFFT 行为与 Ampere/Hopper 可能有差异
 - ARM/RISC-V 交叉编译环境需额外硬件资源
 
+### 6.3 Token 成本追踪流程修正（6/5 更新）
+
+**原流程问题**：`.token-usage.jsonl` 仅记录 pipeline-loop 任务，漏计人机对话；且客户端自算成本未考虑缓存命中折扣（误差 3–30×）。
+
+**修正方案**：
+1. 中期报告/结题报告的 Token 成本以 DeepSeek 后台账单为准
+2. `.token-usage.jsonl` 保留用于追踪任务级活动（信号类型、耗时、token 量）
+3. Pipeline-loop 不再自算 cost_cny，改为从 API response 直接取 `usage` 对象
+4. 每阶段结束时从 DeepSeek 后台导出账单，更新报告
+
 ---
 
 ## 七、下阶段计划
