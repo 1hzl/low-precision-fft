@@ -25,11 +25,11 @@
 | multitone | 1024 | 53.40 ㊣ 0.79 |
 | multitone | 2048 | 53.52 ㊣ 0.82 |
 | multitone | 4096 | 53.41 ㊣ 0.77 |
-| impulse | 256 | 424.08 ㊣ 0.00 |
-| impulse | 512 | 427.09 ㊣ 0.00 |
-| impulse | 1024 | 430.10 ㊣ 0.00 |
-| impulse | 2048 | 433.11 ㊣ 0.00 |
-| impulse | 4096 | 436.12 ㊣ 0.00 |
+| impulse | 256 | 424.08 ㊣ 0.00 | * |
+| impulse | 512 | 427.09 ㊣ 0.00 | * |
+| impulse | 1024 | 430.10 ㊣ 0.00 | * |
+| impulse | 2048 | 433.11 ㊣ 0.00 | * |
+| impulse | 4096 | 436.12 ㊣ 0.00 | * |
 
 ## Summary by N
 
@@ -48,4 +48,6 @@
 | uniform | 53.07 | 53.04 每 53.09 |
 | normal | 54.42 | 54.38 每 54.47 |
 | multitone | 53.45 | 53.40 每 53.52 |
-| impulse | 430.10 | 424.08 每 436.12 |
+| impulse | 430.10 | 424.08 每 436.12 | * |
+
+* Degenerate case 〞 FFT of 汛(t) is a constant vector [1,1,...,1].  The transform is mathematically exact; SQNR reflects FP64 numerical  noise, not actual FFT precision.

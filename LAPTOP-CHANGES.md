@@ -882,3 +882,22 @@ Phase 3 (FP8 自研 kernel) 全部 5 个 Sprint 完成：
 - `build_ext.py` — 修改 (CUDA_HOME env var 优先)
 - `lowp_fft/csrc/cufft_fp16.cu` — 修改 (模板化 plan cache)
 - `src/cuda/bfp_fft.cu` — 修改 (提取共用 helper)
+
+## 2026-06-05: Task 1b-fix — Summary 表 impulse 标注 + 脚注
+
+### 修改
+
+- [x] `data/sqn-fp16-stats.md`: Results 表 5 impulse 行 + Summary by Signal impulse 行 标注 `*`
+- [x] `data/sqn-bf16-stats.md`: Results 表 5 impulse 行 + Summary by Signal impulse 行 标注 `*`
+- [x] 两文件均添加脚注:
+  ```
+  * Degenerate case — FFT of δ(t) is a constant vector [1,1,...,1].
+    The transform is mathematically exact; SQNR reflects FP64 numerical
+    noise, not actual FFT precision.
+  ```
+
+### 验收
+
+- [x] FP16 + BF16 md 汇总表 impulse 行均有 `*` 标注
+- [x] 表下有脚注说明
+- [x] commit + push to n2920 master
