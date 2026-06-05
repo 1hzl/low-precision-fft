@@ -173,11 +173,17 @@ def _bit_reverse_array(x):
 class BFPFFT:
     """Block Floating-Point Radix-2 DIT FFT with parameterized FP format.
 
-    Each FFT stage shares one integer exponent. At the start of each stage,
-    mantissas are dequantized to float64, all butterflies run in float,
-    then the stage outputs are quantized back to FP mantissas with a new
-    shared exponent. This limits FP quantization to once per value per
-    stage rather than once per arithmetic operation.
+    Each FFT stage shares one integer exponent per group of elements.
+    The group_size controls exponent sharing granularity:
+    - None (default): one exponent per stage (whole array) — current behavior
+    - 4: one exponent per 4 elements within each stage
+    - 8: one exponent per 8 elements within each stage
+
+    At the start of each stage, mantissas are dequantized to float64,
+    all butterflies run in float, then the stage outputs are quantized
+    back to FP mantissas with group-wise shared exponents. This limits
+    FP quantization to once per value per stage rather than once per
+    arithmetic operation.
 
     Parameters
     ----------
@@ -187,15 +193,26 @@ class BFPFFT:
         Number of exponent bits in the FP format.
     m_bits : int, default 3
         Number of mantissa bits in the FP format.
+    group_size : int or None, default None
+        Exponent sharing granularity. None = per-stage (1 exponent/stage),
+        or a divisor of N (e.g. 4, 8) for group-wise exponents.
     """
 
-    def __init__(self, N, e_bits=4, m_bits=3):
+    def __init__(self, N, e_bits=4, m_bits=3, group_size=None):
         if N & (N - 1) != 0:
             raise ValueError(f"N={N} must be a power of 2")
+        if group_size is not None:
+            if group_size <= 0 or N % group_size != 0:
+                raise ValueError(
+                    f"group_size={group_size} must evenly divide N={N}")
+            if group_size & (group_size - 1) != 0:
+                raise ValueError(
+                    f"group_size={group_size} must be a power of 2")
         self.N = N
         self.log2N = int(np.log2(N))
         self.e_bits = e_bits
         self.m_bits = m_bits
+        self.group_size = group_size
         self.fmt = FPFormat(e_bits, m_bits)
         self.exponents = []
 
@@ -227,19 +244,34 @@ class BFPFFT:
         if len(x) != self.N:
             raise ValueError(f"Input length {len(x)} != N={self.N}")
         N = self.N
+        gs = self.group_size
+        n_groups = N // gs if gs else 1
         self.exponents = []
         fp8_max = self.fmt.max_val
 
         # 1. Bit-reversal permutation
         x = _bit_reverse_array(x)
 
-        # 2. Initial BFP encoding: quantize input to mantissa + exponent
-        E = compute_shared_exponent(x, fp8_max=fp8_max)
-        self.exponents.append(E)
-        scale = 2.0 ** E
-        for i in range(N):
-            x[i] = self.fmt.quantize(x[i].real / scale) + \
-                   1j * self.fmt.quantize(x[i].imag / scale)
+        # 2. Initial BFP encoding: quantize input to mantissa + exponent(s)
+        if gs is None:
+            E = compute_shared_exponent(x, fp8_max=fp8_max)
+            self.exponents.append(E)
+            scale = 2.0 ** E
+            for i in range(N):
+                x[i] = self.fmt.quantize(x[i].real / scale) + \
+                       1j * self.fmt.quantize(x[i].imag / scale)
+        else:
+            stage_E = np.zeros(n_groups, dtype=np.int32)
+            for g in range(n_groups):
+                idx0 = g * gs
+                idx1 = idx0 + gs
+                E = compute_shared_exponent(x[idx0:idx1], fp8_max=fp8_max)
+                stage_E[g] = E
+                scale = 2.0 ** E
+                for i in range(idx0, idx1):
+                    x[i] = self.fmt.quantize(x[i].real / scale) + \
+                           1j * self.fmt.quantize(x[i].imag / scale)
+            self.exponents.append(stage_E)
 
         # 3. Stage-by-stage butterfly
         step = 1
@@ -251,9 +283,18 @@ class BFPFFT:
                 twiddle_base = np.exp(-2j * np.pi / jump)
 
             # Dequantize all mantissas to float for this stage
-            scale_in = 2.0 ** E
-            for i in range(N):
-                x[i] = x[i] * scale_in
+            if gs is None:
+                scale_in = 2.0 ** self.exponents[-1]
+                for i in range(N):
+                    x[i] = x[i] * scale_in
+            else:
+                prev_E = self.exponents[-1]
+                for g in range(n_groups):
+                    idx0 = g * gs
+                    idx1 = idx0 + gs
+                    scale_in = 2.0 ** float(prev_E[g])
+                    for i in range(idx0, idx1):
+                        x[i] = x[i] * scale_in
 
             # Run all butterflies in float64 (no per-op FP quantization)
             for group in range(0, N, jump):
@@ -267,18 +308,39 @@ class BFPFFT:
                     x[idx_b] = A - w * B
                     w = w * twiddle_base
 
-            # After stage: compute new shared exponent, quantize to FP mantissas
-            E = compute_shared_exponent(x, fp8_max=fp8_max)
-            self.exponents.append(E)
-            scale_out = 2.0 ** E
-            for i in range(N):
-                x[i] = self.fmt.quantize(x[i].real / scale_out) + \
-                       1j * self.fmt.quantize(x[i].imag / scale_out)
+            # After stage: compute shared exponent(s), quantize to FP mantissas
+            if gs is None:
+                E = compute_shared_exponent(x, fp8_max=fp8_max)
+                self.exponents.append(E)
+                scale_out = 2.0 ** E
+                for i in range(N):
+                    x[i] = self.fmt.quantize(x[i].real / scale_out) + \
+                           1j * self.fmt.quantize(x[i].imag / scale_out)
+            else:
+                stage_E = np.zeros(n_groups, dtype=np.int32)
+                for g in range(n_groups):
+                    idx0 = g * gs
+                    idx1 = idx0 + gs
+                    E = compute_shared_exponent(x[idx0:idx1], fp8_max=fp8_max)
+                    stage_E[g] = E
+                    scale_out = 2.0 ** E
+                    for i in range(idx0, idx1):
+                        x[i] = self.fmt.quantize(x[i].real / scale_out) + \
+                               1j * self.fmt.quantize(x[i].imag / scale_out)
+                self.exponents.append(stage_E)
 
             step = jump
 
         # Final dequantize
-        result = x * (2.0 ** self.exponents[-1])
+        if gs is None:
+            result = x * (2.0 ** self.exponents[-1])
+        else:
+            last_E = self.exponents[-1]
+            for g in range(n_groups):
+                idx0 = g * gs
+                idx1 = idx0 + gs
+                x[idx0:idx1] = x[idx0:idx1] * (2.0 ** float(last_E[g]))
+            result = x
         if inverse:
             result = result / self.N
         return result
