@@ -68,3 +68,13 @@
 - **per-stage is already the right choice.** It minimizes exponent storage (1
   exponent/stage vs N/4 or N/8 per stage) with zero precision loss. There is no
   precision-quality tradeoff to make here — coarser is strictly better for efficiency.
+
+## Limitations
+
+Results are for N=1024 with bounded [-1, 1] signals. Larger FFT sizes (N ≥ 4096)
+and signals with >40 dB dynamic range should be tested before generalizing the
+per-stage recommendation. At larger N, the radix-2 DIT FFT's decorrelation effect
+may weaken across distant array segments, potentially making finer exponent sharing
+beneficial. High-dynamic-range signals (e.g., exponential decays, filter responses)
+may expose exponent misalignment that the 3-bit mantissa currently masks at low
+dynamic range.
