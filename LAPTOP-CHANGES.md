@@ -1,5 +1,28 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-06: GPU arch auto-detection in build_ext.py + setup.py
+
+### 修改
+
+- [x] `build_ext.py`: `_detect_gpu_arch()` 函数 — 自动检测当前 GPU SM 版本
+  - `torch.cuda.is_available()` → `torch.cuda.get_device_capability(0)` → `sm_{major}{minor}`
+  - RTX 5070 Ti → `sm_120`
+  - 无 GPU 时 fallback 到 `sm_86`，打印 warning
+- [x] `setup.py`: 同样的 `_detect_gpu_arch()` 函数
+- [x] 两文件的 `-arch=sm_120` 硬编码替换为 `f"-arch={_GPU_ARCH}"`
+
+### 验收
+
+- [x] RTX 5070 Ti 上检测输出 `sm_120`
+- [x] 108 个已有测试全部通过（无回归）
+- [x] 无 GPU 时 graceful fallback + warning
+- [x] 任何 NVIDIA GPU 均可编译
+
+### 输出文件
+
+- `build_ext.py` — GPU arch 自动检测
+- `setup.py` — GPU arch 自动检测
+
 ## 2026-06-06: Task 2b — BFP Group-Size Ablation Study
 
 ### 实现

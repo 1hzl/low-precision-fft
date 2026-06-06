@@ -15,6 +15,28 @@ os.environ.setdefault("CUDA_HOME", os.environ.get("CUDA_HOME", _default_cuda))
 import torch
 import torch.utils.cpp_extension as cpp_ext
 
+
+def _detect_gpu_arch():
+    """Auto-detect GPU compute capability for nvcc -arch flag.
+
+    Returns e.g. 'sm_120' for RTX 5070 Ti, 'sm_86' for RTX 3080.
+    Falls back to 'sm_86' if CUDA is unavailable.
+    """
+    if torch.cuda.is_available():
+        major, minor = torch.cuda.get_device_capability(0)
+        arch = f"sm_{major}{minor}"
+        logging.info(f"Detected GPU arch: {arch} (device 0)")
+        return arch
+    else:
+        logging.warning(
+            "CUDA not available — using fallback arch sm_86. "
+            "Install CUDA toolkit or set CUDA_VISIBLE_DEVICES."
+        )
+        return "sm_86"
+
+
+_GPU_ARCH = _detect_gpu_arch()
+
 _original_check = cpp_ext._check_cuda_version
 
 
@@ -57,7 +79,7 @@ ext_modules = [
             "nvcc": [
                 "-O3",
                 "-std=c++17",
-                "-arch=sm_120",
+                f"-arch={_GPU_ARCH}",
                 "--expt-relaxed-constexpr",
                 "-Xcompiler", "/Zc:preprocessor",
             ],
