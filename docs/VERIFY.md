@@ -9,33 +9,35 @@
 - Python 3.10+
 - (可选) NVIDIA GPU + CUDA Toolkit 12.x
 
+> 获取代码：联系项目负责人获取仓库地址，然后 `git clone <url> && cd low-precision-fft`
+
 ---
 
 ## 快速验证 — CPU 路径（任何人可跑，1 分钟）
 
-无需 GPU，仅需 NumPy。验证 BFP FP8 算法正确性。
+无需 GPU，仅需 NumPy + pytest。验证 BFP FP8 算法正确性。
 
 ```bash
-git clone <repo-url>
-cd low-precision-fft
-pip install numpy
+pip install numpy pytest
 python -m pytest tests/test_bfp_fft.py -v
 ```
 
-**预期输出**：
+**预期输出（节选）**：
 
 ```
-tests/test_bfp_fft.py::test_bfp_forward_shape      PASSED
-tests/test_bfp_fft.py::test_bfp_forward_finite      PASSED
-tests/test_bfp_fft.py::test_bfp_inverse              PASSED
-tests/test_bfp_fft.py::test_bfp_roundtrip            PASSED
-tests/test_bfp_fft.py::test_bfp_dc_input             PASSED
-tests/test_bfp_fft.py::test_bfp_extreme_values       PASSED
-tests/test_bfp_fft.py::test_bfp_all_zeros            PASSED
-tests/test_bfp_fft.py::test_bfp_n2                   PASSED
-tests/test_bfp_fft.py::test_bfp_n4                   PASSED
-tests/test_bfp_fft.py::test_bfp_mantissa_bits        PASSED
-tests/test_bfp_fft.py::test_bfp_group_size           PASSED
+test_zero ............................... PASSED
+test_exact_representable ................ PASSED
+test_round_to_nearest ................... PASSED
+test_forward_shape ...................... PASSED
+test_against_fp32_reference ............. PASSED
+test_exponents_monotonic ................ PASSED
+test_power_of_two_only .................. PASSED
+test_dc_only_signal ..................... PASSED
+test_extreme_dynamic_range .............. PASSED
+test_all_zeros_input .................... PASSED
+test_identity_small_n[8] ................ PASSED
+test_identity_small_n[16] ............... PASSED
+test_minimum_legal_input[2] ............. PASSED
 ...
 
 ======================== 22 passed ========================
@@ -48,19 +50,26 @@ tests/test_bfp_fft.py::test_bfp_group_size           PASSED
 验证 FP16 cuFFT 封装 + BFP CUDA kernel + 自动微分。
 
 ```bash
-git clone <repo-url>
-cd low-precision-fft
+# 先装 PyTorch（从 pytorch.org 按你的 CUDA 版本选）
+pip install torch
+# 再编译安装项目
 pip install -e .
+# 跑全量测试
 python -m pytest tests/ -v
 ```
 
 **预期输出**：
 
 ```
+tests/test_bfp_fft.py ................... 22 passed
+tests/test_bfp_cuda.py ................... 6 passed
+tests/test_autograd.py .................. 61 passed
+tests/test_bf16.py ...................... 19 passed
+
 ======================== 108 passed ========================
 ```
 
-> GPU 架构会自动检测（`torch.cuda.get_device_capability()`），无需手动修改。
+> GPU 架构会自动检测（`torch.cuda.get_device_capability()`），任何 NVIDIA 卡均可编译，无需手动修改。
 
 ---
 
@@ -86,18 +95,19 @@ python tests/bench_bfp_ablation_group_size.py
 
 ---
 
-## 如果遇到问题
+## 常见问题
 
 | 问题 | 原因 | 修法 |
 |------|------|------|
+| `ModuleNotFoundError: numpy` | NumPy 未安装 | `pip install numpy` |
 | `nvcc not found` | CUDA Toolkit 未安装 | `apt install nvidia-cuda-toolkit` |
-| `torch not found` | PyTorch 未安装 | `pip install torch` |
-| 编译失败 | 驱动版本过旧 | 更新 NVIDIA Driver ≥ 570 |
-| SQNR 偏差 >0.5 dB | 不同 OS/NumPy 版本的浮点累计误差 | 正常，记录即可 |
+| `torch not found` | PyTorch 未安装 | 从 [pytorch.org](https://pytorch.org) 安装 |
+| 编译报错（GPU 路径） | 驱动/CUDA 版本不兼容 | 确认 `nvidia-smi` 显示 CUDA ≥ 12.x |
+| SQNR 偏差 >0.5 dB | 不同 OS/NumPy/PyTorch 版本的浮点累计误差 | 正常现象，记录即可 |
 
 ---
 
-## 验证记录模板
+## 验证记录
 
 ```
 === 低精度 FFT 独立验证记录 ===
