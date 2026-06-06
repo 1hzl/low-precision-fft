@@ -1,4 +1,5 @@
 import os
+import logging
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
@@ -6,6 +7,25 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 # Prefer CUDA_HOME from environment, with Windows default as fallback
 _default_cuda = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3"
 os.environ.setdefault("CUDA_HOME", os.environ.get("CUDA_HOME", _default_cuda))
+
+import torch
+
+
+def _detect_gpu_arch():
+    if torch.cuda.is_available():
+        major, minor = torch.cuda.get_device_capability(0)
+        arch = f"sm_{major}{minor}"
+        logging.info(f"Detected GPU arch: {arch} (device 0)")
+        return arch
+    else:
+        logging.warning(
+            "CUDA not available — using fallback arch sm_86. "
+            "Install CUDA toolkit or set CUDA_VISIBLE_DEVICES."
+        )
+        return "sm_86"
+
+
+_GPU_ARCH = _detect_gpu_arch()
 
 ext_modules = [
     CUDAExtension(
@@ -16,7 +36,7 @@ ext_modules = [
             "nvcc": [
                 "-O3",
                 "-std=c++17",
-                "-arch=sm_120",
+                f"-arch={_GPU_ARCH}",
                 "--expt-relaxed-constexpr",
             ],
         },
