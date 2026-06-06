@@ -45,21 +45,22 @@ test_minimum_legal_input[2] ............. PASSED
 
 ---
 
-## 完整验证 — GPU 路径（需 NVIDIA GPU + C++ 编译器，5 分钟）
+## 完整验证 — GPU 路径（需 NVIDIA GPU，5 分钟）
 
 验证 FP16 cuFFT 封装 + BFP CUDA kernel + 自动微分。
 
+### 前置准备
+
+1. **CUDA Toolkit** — 从 [NVIDIA 官网](https://developer.nvidia.com/cuda-downloads) 下载安装（Windows exe 即可）
+2. **C++ 编译器** — 安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)，勾选「使用 C++ 的桌面开发」工作负载
+3. **PyTorch** — 从 [pytorch.org](https://pytorch.org) 按你的 CUDA 版本选命令安装
+
+### 运行
+
 ```bash
-# 先装 PyTorch（从 pytorch.org 按你的 CUDA 版本选）
-pip install torch
-# 再编译安装项目
 pip install -e .
-# 跑全量测试
 python -m pytest tests/ -v
 ```
-
-> **Windows 注意**：`pip install -e .` 需要 C++ 编译器。
-> 安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)，勾选「使用 C++ 的桌面开发」工作负载。
 
 **预期输出**：
 
@@ -103,11 +104,11 @@ python tests/bench_bfp_ablation_group_size.py
 | 问题 | 原因 | 修法 |
 |------|------|------|
 | `ModuleNotFoundError: numpy` | NumPy 未安装 | `pip install numpy` |
-| `nvcc not found` | CUDA Toolkit 未安装 | **Linux**: `apt install nvidia-cuda-toolkit` / **Windows**: 安装 [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) |
+| `error: Microsoft Visual C++ 14.0 is required` | 缺少 C++ 编译器 | 安装 [VS Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)，勾选「使用 C++ 的桌面开发」 |
+| `nvcc not found` | CUDA Toolkit 未安装 | 从 [NVIDIA 官网](https://developer.nvidia.com/cuda-downloads) 下载安装（Linux: `apt install nvidia-cuda-toolkit`） |
 | `torch not found` | PyTorch 未安装 | 从 [pytorch.org](https://pytorch.org) 安装 |
-| `error: Microsoft Visual C++ 14.0 is required`（Windows） | 缺少 C++ 编译器 | 安装 [VS Build Tools](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)，勾选「使用 C++ 的桌面开发」 |
 | 编译报错（GPU 路径） | 驱动/CUDA 版本不兼容 | 确认 `nvidia-smi` 显示 CUDA ≥ 12.x |
-| SQNR 偏差 >0.5 dB | 不同 OS/NumPy/PyTorch 版本的浮点累计误差 | 正常现象，记录即可 |
+| SQNR 偏差 >0.5 dB | 不同机器的浮点累计误差 | 正常现象，记录即可 |
 
 ---
 
