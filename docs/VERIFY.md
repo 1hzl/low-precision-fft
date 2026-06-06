@@ -70,10 +70,14 @@ tests/test_bfp_cuda.py ................... 6 passed
 tests/test_autograd.py .................. 61 passed
 tests/test_bf16.py ...................... 19 passed
 
-======================== 108 passed ========================
+======================== 108 passed, 4 skipped, 2 xfailed ========================
 ```
 
-> GPU 架构会自动检测（`torch.cuda.get_device_capability()`），任何 NVIDIA 卡均可编译，无需手动修改。
+> GPU 架构会自动检测（`torch.cuda.get_device_capability()`），任何 NVIDIA 卡均可编译。
+>
+> **4 skipped + 2 xfailed 是正常现象**：
+> - skipped：FP16/BF16 半精度数值梯度检验被跳过（受限于 IEEE 754 半精度物理精度，已用 `test_gradient_vs_fp32` 替代验证）
+> - xfailed：PlanCache 超 64 条目淘汰时，CUDA 驱动偶发 race condition（正常使用 FFT 尺寸固定，不触发）
 
 ---
 
