@@ -3,10 +3,12 @@ import logging
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 
-# Point to CUDA Toolkit 13.3 (nvcc and headers)
-# Prefer CUDA_HOME from environment, with Windows default as fallback
-_default_cuda = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3"
-os.environ.setdefault("CUDA_HOME", os.environ.get("CUDA_HOME", _default_cuda))
+# Cross-platform CUDA_HOME detection
+from _cuda_detect import find_cuda_home
+try:
+    os.environ.setdefault("CUDA_HOME", find_cuda_home())
+except OSError:
+    pass  # let torch.cpp_extension report the error with its own message
 
 import torch
 

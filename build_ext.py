@@ -9,8 +9,11 @@ import os
 import sys
 import logging
 
-_default_cuda = "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.3"
-os.environ.setdefault("CUDA_HOME", os.environ.get("CUDA_HOME", _default_cuda))
+from _cuda_detect import find_cuda_home
+try:
+    os.environ.setdefault("CUDA_HOME", find_cuda_home())
+except OSError:
+    pass  # let torch.cpp_extension report the error with its own message
 
 import torch
 import torch.utils.cpp_extension as cpp_ext
