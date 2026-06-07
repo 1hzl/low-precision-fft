@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
@@ -29,18 +30,23 @@ def _detect_gpu_arch():
 
 _GPU_ARCH = _detect_gpu_arch()
 
+_nvcc_args = [
+    "-O3",
+    "-std=c++17",
+    f"-arch={_GPU_ARCH}",
+    "--expt-relaxed-constexpr",
+]
+if sys.platform == "win32":
+    _nvcc_args.extend(["-Xcompiler", "/Zc:preprocessor"])
+
 ext_modules = [
     CUDAExtension(
         name="lowp_fft._cufft_ext",
         sources=["lowp_fft/csrc/cufft_fp16.cu"],
+        libraries=["cufft"],
         extra_compile_args={
             "cxx": ["-O3", "-std=c++17"],
-            "nvcc": [
-                "-O3",
-                "-std=c++17",
-                f"-arch={_GPU_ARCH}",
-                "--expt-relaxed-constexpr",
-            ],
+            "nvcc": _nvcc_args,
         },
     ),
 ]
