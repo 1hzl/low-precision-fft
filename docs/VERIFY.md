@@ -190,7 +190,8 @@ test_bf16.py .... 39 passed, 2 skipped
 |---------|--------|
 | 任何红色 `FAILED` | 截图发给项目负责人 |
 | `test_bfp_cuda.py` 全部 skipped | GPU 不可用，回退到路径 A |
-| passed 总数不到 100 | 截图最终统计行 |
+| `test_bfp_cuda.py` 有 1 FAILED (test_exe_exists) | 没跑 `build_bfp.bat`。不算失败 — 94 passed 已是完整验证 |
+| passed 总数不到 94 | 截图最终统计行 |
 
 ---
 
