@@ -91,6 +91,8 @@ if _CUDA_HOME and _GPU_ARCH:
     # The extension works fine — skip the overly strict version check.
     import torch.utils.cpp_extension as _cpp_ext
     _cpp_ext._check_cuda_version = lambda *a, **kw: None
+    import sys
+    sys.stderr.write(f"### PATCHED _check_cuda_version = {_cpp_ext._check_cuda_version}\n")
 
     _nvcc_args = [
         "-O3",
