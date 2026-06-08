@@ -58,7 +58,7 @@ def _detect_cuda_home():
 
 _CUDA_HOME = _detect_cuda_home()
 if _CUDA_HOME:
-    os.environ.setdefault("CUDA_HOME", _CUDA_HOME)
+    os.environ["CUDA_HOME"] = _CUDA_HOME  # force-set, setdefault won't overwrite empty string
     logging.info("CUDA_HOME=%s", _CUDA_HOME)
 else:
     logging.warning(
