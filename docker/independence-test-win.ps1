@@ -209,8 +209,6 @@ if ($setupPy -match 'C:/Program Files') {
     Warn "setup.py contains hardcoded C:/Program Files path"
 }
 
-### Step 8: setup.py loads _cuda_detect (no longer required — setup.py has own detection)
-
 if ($setupPy -match '/Zc:preprocessor') {
     Pass "setup.py includes /Zc:preprocessor flag (CUDA 13.3 MSVC fix)"
 } else {
