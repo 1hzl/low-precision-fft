@@ -91,10 +91,10 @@ ext_modules = []
 cmdclass = {}
 
 if _CUDA_HOME and _GPU_ARCH:
-    os.environ["CUDA_HOME"] = _CUDA_HOME
-    import sys as _sys
-    _sys.stderr.write(f"!!!DEBUG CUDA_HOME in environ: {os.environ.get('CUDA_HOME')}\n")
-    _sys.stderr.write(f"!!!DEBUG _CUDA_HOME: {_CUDA_HOME}\n")
+    # torch.cpp_extension may clear os.environ["CUDA_HOME"] during init.
+    # Monkey-patch _join_cuda_home to use our detected path directly.
+    import torch.utils.cpp_extension as _cpp_ext
+    _cpp_ext._join_cuda_home = lambda *paths, _h=_CUDA_HOME: os.path.join(_h, *paths)
     _nvcc_args = [
         "-O3",
         "-std=c++17",
