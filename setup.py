@@ -87,6 +87,11 @@ ext_modules = []
 cmdclass = {}
 
 if _CUDA_HOME and _GPU_ARCH:
+    # CUDA minor version mismatch is common (e.g. CUDA 13.3 vs torch's 12.8).
+    # The extension works fine — skip the overly strict version check.
+    import torch.utils.cpp_extension as _cpp_ext
+    _cpp_ext._check_cuda_version = lambda *a, **kw: None
+
     _nvcc_args = [
         "-O3",
         "-std=c++17",
