@@ -1,10 +1,13 @@
 import os
 import sys
 import logging
+
+# Ensure project root is on sys.path so _cuda_detect is importable
+# during pip build isolation (pip copies setup.py to a temp dir)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-
-# Cross-platform CUDA_HOME detection
 from _cuda_detect import find_cuda_home
 try:
     os.environ.setdefault("CUDA_HOME", find_cuda_home())

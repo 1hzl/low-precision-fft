@@ -16,6 +16,11 @@ function Fail($msg) { Write-Host "[FAIL] $msg" -ForegroundColor Red; $script:Fai
 function Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow; $script:Warnings++ }
 function Section($msg) { Write-Host ""; Write-Host "--- $msg ---" -ForegroundColor Cyan }
 
+# Helper: run Python code from stdin, capture output
+function Run-Python($code) {
+    $code | python 2>&1
+}
+
 $SrcDir = Split-Path $PSScriptRoot -Parent
 Set-Location $SrcDir
 
@@ -59,12 +64,15 @@ if (Test-Path $vswhere) {
     }
 }
 
-# Check torch
-$torchScript = 'import torch; print(torch.__version__); print("CUDA_AVAIL:", torch.cuda.is_available())'
-$torchOut = python -c $torchScript 2>&1
+# Check torch (stdin pipe avoids PS5 quote issues)
+$torchOut = Run-Python @'
+import torch
+print(torch.__version__)
+print("CUDA_AVAIL:", torch.cuda.is_available())
+'@
 $torchLines = $torchOut -join ' | '
 Write-Host "torch:   $torchLines"
-if ($torchOut -match "CUDA_AVAIL: True") {
+if (($torchOut -join ' ') -match "CUDA_AVAIL: True") {
     Pass "torch with CUDA"
 } else {
     Warn "torch CPU-only"
@@ -109,18 +117,18 @@ if ($installExit -eq 0) {
     if ($installStr -match "traditional preprocessor|C1189") {
         Fail "  -> MSVC traditional preprocessor error (HANDSHAKE #4)"
     }
-    if ($installStr -match "Could not find a version|No matching distribution") {
-        Warn "  -> pip dependency resolution error"
-    }
 }
 
 # ===== 4. import =====
 Section "4. import lowp_fft"
 
-$importScript = 'import lowp_fft; print("OK"); print([x for x in dir(lowp_fft) if not x.startswith("_")])'
-$importOut = python -c $importScript 2>&1
+$importOut = Run-Python @'
+import lowp_fft
+print("OK")
+print([x for x in dir(lowp_fft) if not x.startswith("_")])
+'@
 $importExit = $LASTEXITCODE
-Write-Host $importOut
+Write-Host ($importOut -join ' ')
 
 if ($importExit -eq 0 -and ($importOut -join ' ') -match "OK") {
     Pass "import lowp_fft succeeded"
@@ -131,9 +139,11 @@ if ($importExit -eq 0 -and ($importOut -join ' ') -match "OK") {
 # ===== 5. CUDA extension =====
 Section "5. CUDA extension loaded?"
 
-$extScript = 'import lowp_fft; print("cufft_ext_loaded:", lowp_fft._cufft_ext is not None)'
-$extOut = python -c $extScript 2>&1
-Write-Host $extOut
+$extOut = Run-Python @'
+import lowp_fft
+print("cufft_ext_loaded:", lowp_fft._cufft_ext is not None)
+'@
+Write-Host ($extOut -join ' ')
 
 if (($extOut -join ' ') -match "cufft_ext_loaded: True") {
     Pass "_cufft_ext loaded"
@@ -172,7 +182,7 @@ else { Fail "test_bf16.py FAILED" }
 # ===== 7. _cuda_detect =====
 Section "7. _cuda_detect standalone (HANDSHAKE #2)"
 
-$detectScript = @'
+$detectOut = Run-Python @'
 import _cuda_detect
 try:
     path = _cuda_detect.find_cuda_home()
@@ -180,8 +190,7 @@ try:
 except OSError as e:
     print("NOT FOUND:", e)
 '@
-$detectOut = python -c $detectScript 2>&1
-Write-Host $detectOut
+Write-Host ($detectOut -join ' ')
 
 if (($detectOut -join ' ') -match "FOUND:") {
     Pass "_cuda_detect found CUDA on Windows"
