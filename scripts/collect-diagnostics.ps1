@@ -79,6 +79,27 @@ Run-Cmd "nvcc" '
 nvcc --version 2>&1
 '
 
+# Check for driver/toolkit CUDA version mismatch
+Run-Cmd "cuda-version-check" '
+$driverVer = (nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>&1 | Select-Object -First 1) -replace "\s",""
+$nvccLine = nvcc --version 2>&1 | Select-String "release"
+Write-Output "NVIDIA Driver: $driverVer"
+Write-Output "nvcc: $nvccLine"
+# Try to get driver CUDA version from nvidia-smi output
+$smiOut = nvidia-smi 2>&1 | Out-String
+if ($smiOut -match "CUDA Version: (\d+\.\d+)") {
+    $driverCuda = $matches[1]
+    Write-Output "Driver supports CUDA: $driverCuda"
+    if ($nvccLine -match "release (\d+\.\d+)") {
+        $nvccCuda = $matches[1]
+        if ([version]$nvccCuda -gt [version]$driverCuda) {
+            Write-Output "!!! WARNING: CUDA Toolkit ($nvccCuda) is NEWER than driver CUDA ($driverCuda)"
+            Write-Output "!!! This will cause cuFFT error 16 at runtime. Update your NVIDIA driver."
+        }
+    }
+}
+'
+
 # ===== 3. PyTorch =====
 Run-Cmd "torch-info" '
 python -c "

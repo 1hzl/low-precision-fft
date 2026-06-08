@@ -96,9 +96,11 @@ nvcc --version
 
 **你应该看到**：
 ```
-NVIDIA-SMI xxx.xx  ...  Driver Version: xxx
+NVIDIA-SMI xxx.xx  ...  Driver Version: xxx  ...  CUDA Version: 1x.x
 Cuda compilation tools, release 1x.x
 ```
+
+> ⚠️ **nvidia-smi 里的 CUDA Version 必须 ≥ nvcc 的 release 版本号**。如果 nvidia-smi 显示 CUDA 12.9 但 nvcc 是 13.3，需要更新显卡驱动。
 
 | 看到什么 | 怎么办 |
 |---------|--------|
@@ -165,6 +167,7 @@ Successfully installed lowp_fft-0.1.0
 | `error: Microsoft Visual C++ 14.0 is required` | 回到 B-3 装 Build Tools |
 | `LINK : fatal error LNK1181: c10_cuda.lib` | 确认用了 `--no-build-isolation` |
 | `nvcc fatal: Unsupported GPU architecture` | 显卡太新/太旧。发 GPU 型号给项目负责人 |
+| `cuFFT error 16` (CUFFT_EXEC_FAILED) | CUDA Toolkit 版本 > 驱动支持的 CUDA 版本。更新显卡驱动到最新 |
 
 ---
 
