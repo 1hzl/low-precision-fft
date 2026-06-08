@@ -214,6 +214,30 @@ python tests/bench_bfp_ablation_group_size.py
 
 ---
 
+## 🔧 遇到问题？一键诊断
+
+如果上面任何步骤失败，运行诊断脚本收集完整环境信息：
+
+```bash
+.\scripts\collect-diagnostics.ps1
+```
+
+这会生成 `diagnostics-YYYYMMDD-HHMMSS.log`，包含：
+
+- 系统版本、Python/pip 版本、已安装的包、pip 缓存状态
+- **全部** CUDA/NVIDIA 环境变量（含空值）
+- nvidia-smi + nvcc 版本
+- PyTorch 版本、GPU 型号、CUDA 版本、Compute Capability
+- MSVC 编译器位置
+- Git 仓库状态
+- pip install 完整输出（含退出码）
+- import 检查
+- pytest 逐文件 + 全量输出
+
+将生成的 `.log` 文件发给项目负责人。
+
+---
+
 ## ✅ 验证记录
 
 复制下面模板，填完发给项目负责人：
