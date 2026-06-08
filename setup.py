@@ -58,7 +58,6 @@ def _detect_cuda_home():
 
 _CUDA_HOME = _detect_cuda_home()
 if _CUDA_HOME:
-    os.environ["CUDA_HOME"] = _CUDA_HOME  # force-set, setdefault won't overwrite empty string
     logging.info("CUDA_HOME=%s", _CUDA_HOME)
 else:
     logging.warning(
@@ -70,6 +69,10 @@ else:
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 import torch
+
+# Re-set CUDA_HOME now, after torch import may have cleared it
+if _CUDA_HOME:
+    os.environ["CUDA_HOME"] = _CUDA_HOME
 
 
 def _detect_gpu_arch():
