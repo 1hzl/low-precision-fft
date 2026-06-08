@@ -6,59 +6,69 @@ import logging
 # during pip build isolation (pip copies setup.py to a temp dir)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+logging.basicConfig(level=logging.INFO)
 
-def _ensure_cuda_home():
-    """Set CUDA_HOME env var, with fallbacks for pip build isolation.
 
-    Pip build isolation may not inherit CUDA_PATH / ProgramFiles env vars
-    on Windows, so we search known paths directly as well.
-    """
+def _detect_cuda_home():
+    """Try hard to find CUDA. Returns path or None."""
     # 1. Already set
-    if os.environ.get("CUDA_HOME"):
-        return
+    val = os.environ.get("CUDA_HOME")
+    if val:
+        return val
 
-    # 2. Try _cuda_detect (covers CUDA_PATH, nvcc, platform defaults)
-    try:
-        from _cuda_detect import find_cuda_home
-        os.environ["CUDA_HOME"] = find_cuda_home()
-        return
-    except (ImportError, OSError):
-        pass
+    # 2. CUDA_PATH env (Windows convention)
+    val = os.environ.get("CUDA_PATH")
+    if val and os.path.isdir(os.path.join(val, "include")):
+        return val
 
-    # 3. Hard fallback: search common Windows CUDA paths directly
-    #    (does not depend on env vars, works even in pip isolation)
+    # 3. nvcc on PATH
+    import shutil
+    nvcc = shutil.which("nvcc")
+    if nvcc:
+        cuda_home = os.path.dirname(os.path.dirname(nvcc))
+        if os.path.isdir(os.path.join(cuda_home, "include")):
+            return cuda_home
+
+    # 4. Known install paths (no env vars needed)
     if sys.platform == "win32":
-        candidates = [
+        for root in [
             r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA",
             r"C:\Program Files (x86)\NVIDIA GPU Computing Toolkit\CUDA",
-        ]
-        for base in candidates:
-            if os.path.isdir(base):
-                try:
-                    versions = sorted(
-                        [d for d in os.listdir(base) if d.startswith("v")],
-                        reverse=True,
-                    )
-                    for v in versions:
-                        path = os.path.join(base, v)
-                        if os.path.isdir(os.path.join(path, "include")):
-                            os.environ["CUDA_HOME"] = path
-                            return
-                except OSError:
-                    continue
+        ]:
+            if not os.path.isdir(root):
+                continue
+            try:
+                vers = sorted(
+                    [d for d in os.listdir(root) if d.lower().startswith("v")],
+                    reverse=True,
+                )
+            except OSError:
+                continue
+            for v in vers:
+                path = os.path.join(root, v)
+                if os.path.isdir(os.path.join(path, "include")):
+                    return path
+    else:
+        for path in ["/usr/local/cuda", "/opt/cuda"]:
+            if os.path.isdir(os.path.join(path, "include")):
+                return path
 
-    # 4. Linux fallback
-    for path in ["/usr/local/cuda", "/opt/cuda"]:
-        if os.path.isdir(os.path.join(path, "include")):
-            os.environ["CUDA_HOME"] = path
-            return
+    return None
 
 
-_ensure_cuda_home()
+_CUDA_HOME = _detect_cuda_home()
+if _CUDA_HOME:
+    os.environ.setdefault("CUDA_HOME", _CUDA_HOME)
+    logging.info("CUDA_HOME=%s", _CUDA_HOME)
+else:
+    logging.warning(
+        "CUDA toolkit not found. CUDA extension will NOT be built.\n"
+        "  Set CUDA_HOME or CUDA_PATH, or install CUDA toolkit.\n"
+        "  The pure Python API (fft/ifft fallback, BFP prototype) will still work."
+    )
 
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-
 import torch
 
 
@@ -66,38 +76,43 @@ def _detect_gpu_arch():
     if torch.cuda.is_available():
         major, minor = torch.cuda.get_device_capability(0)
         arch = f"sm_{major}{minor}"
-        logging.info(f"Detected GPU arch: {arch} (device 0)")
+        logging.info("Detected GPU arch: %s (device 0)", arch)
         return arch
-    else:
-        logging.warning(
-            "CUDA not available — using fallback arch sm_86. "
-            "Install CUDA toolkit or set CUDA_VISIBLE_DEVICES."
-        )
+    elif _CUDA_HOME:
+        logging.warning("CUDA toolkit found but GPU not available — using sm_86")
         return "sm_86"
+    else:
+        return None
 
 
 _GPU_ARCH = _detect_gpu_arch()
 
-_nvcc_args = [
-    "-O3",
-    "-std=c++17",
-    f"-arch={_GPU_ARCH}",
-    "--expt-relaxed-constexpr",
-]
-if sys.platform == "win32":
-    _nvcc_args.extend(["-Xcompiler", "/Zc:preprocessor"])
+# ── Extension modules (conditional on CUDA) ──
+ext_modules = []
+cmdclass = {}
 
-ext_modules = [
-    CUDAExtension(
-        name="lowp_fft._cufft_ext",
-        sources=["lowp_fft/csrc/cufft_fp16.cu"],
-        libraries=["cufft"],
-        extra_compile_args={
-            "cxx": ["-O3", "-std=c++17"],
-            "nvcc": _nvcc_args,
-        },
-    ),
-]
+if _CUDA_HOME and _GPU_ARCH:
+    _nvcc_args = [
+        "-O3",
+        "-std=c++17",
+        f"-arch={_GPU_ARCH}",
+        "--expt-relaxed-constexpr",
+    ]
+    if sys.platform == "win32":
+        _nvcc_args.extend(["-Xcompiler", "/Zc:preprocessor"])
+
+    ext_modules = [
+        CUDAExtension(
+            name="lowp_fft._cufft_ext",
+            sources=["lowp_fft/csrc/cufft_fp16.cu"],
+            libraries=["cufft"],
+            extra_compile_args={
+                "cxx": ["-O3", "-std=c++17"],
+                "nvcc": _nvcc_args,
+            },
+        ),
+    ]
+    cmdclass = {"build_ext": BuildExtension}
 
 setup(
     name="lowp_fft",
@@ -105,7 +120,7 @@ setup(
     description="Low-precision FFT for PyTorch — FP16/BF16/FP8 wrappers",
     packages=find_packages(exclude=["tests", "tests.*"]),
     ext_modules=ext_modules,
-    cmdclass={"build_ext": BuildExtension},
+    cmdclass=cmdclass,
     python_requires=">=3.10",
     install_requires=["torch>=2.0"],
     zip_safe=False,
