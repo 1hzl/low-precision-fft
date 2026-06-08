@@ -79,7 +79,7 @@ def _which(exe_name):
 
 def _find_windows_default():
     """Search Program Files/NVIDIA GPU Computing Toolkit/CUDA/ for newest version."""
-    program_files = os.environ.get("ProgramFiles", "C:/Program Files")
+    program_files = os.environ.get("ProgramFiles", "C:\\Program Files")
     base = os.path.join(
         program_files, "NVIDIA GPU Computing Toolkit", "CUDA",
     )

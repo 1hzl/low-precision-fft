@@ -6,13 +6,58 @@ import logging
 # during pip build isolation (pip copies setup.py to a temp dir)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+
+def _ensure_cuda_home():
+    """Set CUDA_HOME env var, with fallbacks for pip build isolation.
+
+    Pip build isolation may not inherit CUDA_PATH / ProgramFiles env vars
+    on Windows, so we search known paths directly as well.
+    """
+    # 1. Already set
+    if os.environ.get("CUDA_HOME"):
+        return
+
+    # 2. Try _cuda_detect (covers CUDA_PATH, nvcc, platform defaults)
+    try:
+        from _cuda_detect import find_cuda_home
+        os.environ["CUDA_HOME"] = find_cuda_home()
+        return
+    except (ImportError, OSError):
+        pass
+
+    # 3. Hard fallback: search common Windows CUDA paths directly
+    #    (does not depend on env vars, works even in pip isolation)
+    if sys.platform == "win32":
+        candidates = [
+            r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA",
+            r"C:\Program Files (x86)\NVIDIA GPU Computing Toolkit\CUDA",
+        ]
+        for base in candidates:
+            if os.path.isdir(base):
+                try:
+                    versions = sorted(
+                        [d for d in os.listdir(base) if d.startswith("v")],
+                        reverse=True,
+                    )
+                    for v in versions:
+                        path = os.path.join(base, v)
+                        if os.path.isdir(os.path.join(path, "include")):
+                            os.environ["CUDA_HOME"] = path
+                            return
+                except OSError:
+                    continue
+
+    # 4. Linux fallback
+    for path in ["/usr/local/cuda", "/opt/cuda"]:
+        if os.path.isdir(os.path.join(path, "include")):
+            os.environ["CUDA_HOME"] = path
+            return
+
+
+_ensure_cuda_home()
+
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
-from _cuda_detect import find_cuda_home
-try:
-    os.environ.setdefault("CUDA_HOME", find_cuda_home())
-except OSError:
-    pass  # let torch.cpp_extension report the error with its own message
 
 import torch
 
