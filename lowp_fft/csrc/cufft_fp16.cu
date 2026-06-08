@@ -36,7 +36,7 @@ struct CachedPlan {
 
 static constexpr size_t kMaxCacheEntries = 64;
 
-template<cufftType DType>
+template<cudaDataType DType>
 struct PlanCache {
     static std::unordered_map<std::string, CachedPlan> plans;
     static std::mutex mtx;
@@ -101,9 +101,9 @@ struct PlanCache {
     }
 };
 
-template<cufftType DType>
+template<cudaDataType DType>
 std::unordered_map<std::string, CachedPlan> PlanCache<DType>::plans;
-template<cufftType DType>
+template<cudaDataType DType>
 std::mutex PlanCache<DType>::mtx;
 
 // ─── Forward / inverse ──────────────────────────────────────────────
