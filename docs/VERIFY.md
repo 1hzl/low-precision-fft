@@ -177,10 +177,14 @@ python -m pytest tests/ -v --tb=short
 **你应该看到**：
 ```
 test_bfp_fft.py .... 22 passed
-test_bfp_cuda.py .... 6 passed
+test_bfp_cuda.py .... 1 failed, 14 skipped  (如果没有先跑 build_bfp.bat)
 test_autograd.py .... 33 passed, 2 skipped, 2 xfailed
 test_bf16.py .... 39 passed, 2 skipped
+
+综合: 94 passed, 17 skipped, 2 xfailed, 1 failed
 ```
+
+> `test_bfp_cuda.py` 需要先运行 `build_bfp.bat` 编译独立的 BFP CUDA 可执行文件（Makefile 方案，与 pip 安装的 PyTorch 扩展是两套构建系统）。如果没跑过，`test_exe_exists` 会 FAIL，其余 14 个测试会跳过——**这不算验证失败**，94 passed 已经是完整验证结果。
 
 | 看到什么 | 怎么办 |
 |---------|--------|
