@@ -2,10 +2,6 @@ import os
 import sys
 import logging
 
-# Ensure project root is on sys.path so _cuda_detect is importable
-# during pip build isolation (pip copies setup.py to a temp dir)
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 logging.basicConfig(level=logging.INFO)
 
 
@@ -58,6 +54,7 @@ def _detect_cuda_home():
 
 _CUDA_HOME = _detect_cuda_home()
 if _CUDA_HOME:
+    os.environ["CUDA_HOME"] = _CUDA_HOME
     logging.info("CUDA_HOME=%s", _CUDA_HOME)
 else:
     logging.warning(
@@ -86,19 +83,10 @@ def _detect_gpu_arch():
 
 _GPU_ARCH = _detect_gpu_arch()
 
-# ── Extension modules (conditional on CUDA) ──
 ext_modules = []
 cmdclass = {}
 
 if _CUDA_HOME and _GPU_ARCH:
-    # torch.cpp_extension functions rely on os.environ which is volatile
-    # in pip build isolation (Python 3.14 / Windows). Patch them directly.
-    import torch.utils.cpp_extension as _cpp_ext
-    _cpp_ext._join_cuda_home = lambda *paths, _h=_CUDA_HOME: os.path.join(_h, *paths)
-    _cpp_ext._check_cuda_version = lambda *a, **kw: None
-    # Also add CUDA bin to PATH so nvcc is findable during actual compilation
-    _cuda_bin = os.path.join(_CUDA_HOME, "bin")
-    os.environ["PATH"] = _cuda_bin + os.pathsep + os.environ.get("PATH", "")
     _nvcc_args = [
         "-O3",
         "-std=c++17",
