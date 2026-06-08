@@ -70,10 +70,6 @@ from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 import torch
 
-# Re-set CUDA_HOME now, after torch import may have cleared it
-if _CUDA_HOME:
-    os.environ["CUDA_HOME"] = _CUDA_HOME
-
 
 def _detect_gpu_arch():
     if torch.cuda.is_available():
@@ -95,6 +91,9 @@ ext_modules = []
 cmdclass = {}
 
 if _CUDA_HOME and _GPU_ARCH:
+    # Set CUDA_HOME at the last possible moment — torch may have cleared
+    # os.environ during import / cuda.is_available() initialization.
+    os.environ["CUDA_HOME"] = _CUDA_HOME
     _nvcc_args = [
         "-O3",
         "-std=c++17",
