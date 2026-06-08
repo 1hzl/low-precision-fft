@@ -91,9 +91,10 @@ ext_modules = []
 cmdclass = {}
 
 if _CUDA_HOME and _GPU_ARCH:
-    # Set CUDA_HOME at the last possible moment — torch may have cleared
-    # os.environ during import / cuda.is_available() initialization.
     os.environ["CUDA_HOME"] = _CUDA_HOME
+    import sys as _sys
+    _sys.stderr.write(f"!!!DEBUG CUDA_HOME in environ: {os.environ.get('CUDA_HOME')}\n")
+    _sys.stderr.write(f"!!!DEBUG _CUDA_HOME: {_CUDA_HOME}\n")
     _nvcc_args = [
         "-O3",
         "-std=c++17",
