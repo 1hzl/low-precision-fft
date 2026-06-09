@@ -1,5 +1,25 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-10: 独立验证报告 v2.0 ✅
+
+### 产出
+
+- [x] `docs/VERIFICATION-REPORT.md` — 全面改版为论文附录级别
+  - 7 机验证矩阵框架 (含环境参数表)
+  - 测试结果汇总: 2/2 已测机器 94 passed 一致
+  - 跨架构分析: sm_70/86/89/90/120 四代 GPU 特性矩阵
+  - V100 BF16 硬件差异说明 (Volta 无 BF16 Tensor Core)
+  - 精度层级汇总 (FP32/FP16/BF16/BFP FP8)
+  - 已知异常项文档化 (skipped/xfailed/failed)
+  - 可复现性声明 + 附录
+
+### 验收
+
+- [x] E4M3 SQNR 跨机器极差: 0.00 dB (21.17 ± 0.16, sm_89 vs sm_120)
+- [x] 94/114 核心测试两机一致通过
+- [x] 剩余 5 台机器验证框架已就绪
+- [x] Commit: `64f4fd3` — pushed to n2920
+
 ## 2026-06-10: V100 BF16 兼容修复 ✅
 
 ### 修改
