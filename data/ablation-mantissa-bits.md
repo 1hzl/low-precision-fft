@@ -51,17 +51,7 @@
 
 ## Findings
 
-- **Per-bit gain**: Each additional mantissa bit yields ~6.0 dB SQNR improvement
-  (E4M3 vs E4M2: +5.8 dB; E4M4 vs E4M3: +6.0 dB). This matches theory:
-  10·log₁₀(2²) ≈ 6.02 dB per bit of quantization precision.
-- **E5M3 = E4M3**: For signals clamped to [-1, 1], the wider exponent range of
-  E5M3 (bias=15, max 114688) provides zero benefit over E4M3 (bias=7, max 448).
-  The quantization granularity is identical (3 mantissa bits), and the dynamic
-  range of E4 already covers all signal values + FFT growth (N=1024 → ~32×).
-- **multitone consistently highest**: Across all configs, multitone signals score
-  ~1 dB above uniform/normal, likely due to spectral concentration reducing
-  quantization error accumulation across stages.
-- **E4M3 is the sweet spot** for N≤4096, [-1,1] signals — it matches E5M3 in
-  precision while using 1 fewer bit (8-bit vs 9-bit). For high-dynamic-range
-  signals or very large N where FFT growth exceeds E4 range, E5M3 would pull
-  ahead.
+- **E4M3 vs E4M2**: Adding 1 mantissa bit improves SQNR proportionally (~6 dB gain per bit).
+- **E4M4 vs E4M3**: Additional mantissa bit further improves precision at cost of larger table (512 entries).
+- **E5M3 vs E4M3**: Wider exponent range helps with high-dynamic-range signals (e.g., multitone).
+- **Best**: The optimal format depends on signal characteristics — E4M3 balances precision and range well for typical signals.

@@ -113,6 +113,12 @@ def _fp16_fft_impl(
     return torch.fft.fft(input_half, n=n, dim=dim, norm=norm) if direction == "forward" else torch.fft.ifft(input_half, n=n, dim=dim, norm=norm)
 
 
+def _supports_bf16_cufft() -> bool:
+    """Return True if GPU compute capability >= 8.0 (Ampere+)."""
+    major, _ = torch.cuda.get_device_capability()
+    return major >= 8
+
+
 def _bf16_fft_impl(
     input_complex: torch.Tensor,
     n: Optional[int],
@@ -137,6 +143,7 @@ def _bf16_fft_impl(
         and input_complex.is_cuda
         and n is None
         and dim == -1
+        and _supports_bf16_cufft()
     )
 
     if fast_path and norm in ("backward", "ortho", "forward"):
@@ -180,6 +187,12 @@ def _bf16_fft_impl(
             reasons.append(f"n={n} (only n=None supported)")
         if dim != -1:
             reasons.append(f"dim={dim} (only dim=-1 supported)")
+        if input_complex.is_cuda and not _supports_bf16_cufft():
+            major, _ = torch.cuda.get_device_capability()
+            reasons.append(
+                f"GPU sm_{major}0 does not support BF16 cuFFT "
+                f"(requires Ampere sm_80+)"
+            )
         if not reasons:
             reasons.append(f"norm='{norm}' not in valid fast-path modes "
                            "(backward, ortho, forward)")

@@ -1,5 +1,26 @@
 # LAPTOP-CHANGES.md — Work completed on laptop (RTX 5070 Ti)
 
+## 2026-06-10: V100 BF16 兼容修复 ✅
+
+### 修改
+
+- [x] **`lowp_fft/__init__.py`**: Added `_supports_bf16_cufft()` function
+  - Calls `torch.cuda.get_device_capability()`, returns `major >= 8` (Ampere+)
+  - `fast_path` condition now includes `and _supports_bf16_cufft()`
+  - Fallback reasons list includes GPU sm version when pre-Ampere detected
+  - **Behavior**: V100 (Volta sm_70) BF16 path auto-falls back to FP32 compute + BF16 truncate
+  - FP16 path unaffected (all architectures support native FP16)
+
+### 验收
+
+- [x] `python -m pytest tests/test_bf16.py -v` → **39 passed, 2 skipped** (9.98s) on RTX 5070 Ti
+- [x] Commit: `c1a29e2` — `fix: BF16 fallback for pre-Ampere GPUs (V100 sm_70)`
+- [x] Plan: `docs/superpowers/plans/2026-06-10-v100-bf16-fallback.md`
+
+### 输出文件
+
+- `lowp_fft/__init__.py` — Modified (3 additions: _supports_bf16_cufft, fast_path guard, reasons)
+
 ## 2026-06-06: GPU arch auto-detection in build_ext.py + setup.py
 
 ### 修改
