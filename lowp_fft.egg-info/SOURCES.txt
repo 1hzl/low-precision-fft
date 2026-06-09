@@ -1,9 +1,0 @@
-README.md
-setup.py
-lowp_fft/__init__.py
-lowp_fft.egg-info/PKG-INFO
-lowp_fft.egg-info/SOURCES.txt
-lowp_fft.egg-info/dependency_links.txt
-lowp_fft.egg-info/not-zip-safe
-lowp_fft.egg-info/requires.txt
-lowp_fft.egg-info/top_level.txt
