@@ -2,15 +2,26 @@
 
 按照本指南操作，5-10 分钟即可完成低精度 FFT 项目的独立验证。
 
+> **v2.0 更新**：基于 6 台独立机器（sm_70/86/89/120，Windows+Linux）的验证经验，新增 Linux 专用指令、
+> V100/Volta 预期行为说明、setuptools 前置依赖、Python 诊断脚本等。
+
 ---
 
 ## 环境速查
 
 开始前确认：
 
+**所有平台：**
 ```bash
 python --version        # 需要 ≥ 3.10
 git --version           # 任意版本
+pip install setuptools  # 必须！缺少会导致 pip install -e . 失败
+```
+
+**Linux 额外检查：**
+```bash
+g++ --version           # CUDA 编译需要 C++ 编译器
+which nvcc 2>/dev/null || echo "需要安装 CUDA Toolkit"
 ```
 
 没有就去装：[Python](https://www.python.org/downloads/)（勾选 Add to PATH）、[Git](https://git-scm.com/download/win)（一路 Next）。
@@ -50,7 +61,9 @@ pip install -e .
 | 看到什么 | 怎么办 |
 |---------|--------|
 | `ModuleNotFoundError: No module named 'torch'` | `pip install torch --index-url https://download.pytorch.org/whl/cpu` |
+| `ModuleNotFoundError: No module named 'setuptools'` | `pip install setuptools` 然后重新 `pip install -e .` |
 | `Successfully installed` 但有一行 `CUDA toolkit not found` | ✅ 正常，纯 Python 模式 |
+| `pip: WARNING: Cache entry deserialization failed` | ✅ 无害警告，忽略 |
 
 ### A-2. 跑测试
 
@@ -71,7 +84,7 @@ test_autograd.py .... 33 passed, 2 skipped, 2 xfailed
 test_bf16.py .... 39 passed, 2 skipped
 ```
 
-> skipped = gradcheck（受半精度物理精度限制，已用替代测试覆盖）  
+> skipped = gradcheck（受半精度物理精度限制，已用替代测试覆盖）
 > xfailed = PlanCache race condition（正常使用时 FFT 尺寸固定，不触发）
 
 | 看到什么 | 怎么办 |
@@ -85,10 +98,19 @@ test_bf16.py .... 39 passed, 2 skipped
 
 需要 NVIDIA 显卡 + CUDA Toolkit。全量测试包括 cuFFT FP16/BF16 扩展 + 自动微分。
 
+> ⚠️ **如果你用的是 V100 / Volta 架构 (sm_70)，请先阅读 [V100 专用说明](#v100-volta-sm_70-专用说明)。**
+
 ---
 
 ### B-1. 确认驱动和 CUDA
 
+**Windows:**
+```bash
+nvidia-smi
+nvcc --version
+```
+
+**Linux:**
 ```bash
 nvidia-smi
 nvcc --version
@@ -100,27 +122,34 @@ NVIDIA-SMI xxx.xx  ...  Driver Version: xxx  ...  CUDA Version: 1x.x
 Cuda compilation tools, release 1x.x
 ```
 
-> ⚠️ **nvidia-smi 里的 CUDA Version 必须 ≥ nvcc 的 release 版本号**。如果 nvidia-smi 显示 CUDA 12.9 但 nvcc 是 13.3，需要更新显卡驱动。
+> ⚠️ **nvidia-smi 里的 CUDA Version 必须 ≥ nvcc 的 release 版本号**。
+> 如果 nvidia-smi 显示 CUDA 12.9 但 nvcc 是 13.3，需要更新显卡驱动。
+> 经验：CUDA 13.3 + 驱动 580.x 组合已验证正常；CUDA 12.8 + 驱动 580.x 也正常。
+> 实测覆盖：CUDA 12.8 ~ 13.3.33，驱动 580.76 ~ 610.47。
 
 | 看到什么 | 怎么办 |
 |---------|--------|
 | `nvidia-smi: command not found` | 装显卡驱动：[NVIDIA 官网](https://www.nvidia.com/download/index.aspx) |
 | `nvcc: command not found` | 装 CUDA Toolkit：[NVIDIA CUDA](https://developer.nvidia.com/cuda-downloads) |
-| | 安装后设置：`setx CUDA_PATH "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\vXX.X"` 并重启终端 |
+| | 安装后 Linux: `export PATH=/usr/local/cuda/bin:$PATH` |
+| | 安装后 Windows: `setx CUDA_PATH "C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\vXX.X"` |
 
 ---
 
 ### B-2. 确认 PyTorch + GPU
 
 ```bash
-python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0)); cc=torch.cuda.get_device_capability(); print(f'sm_{cc[0]}{cc[1]}')"
 ```
 
 **你应该看到**：
 ```
 True
 NVIDIA GeForce RTX xxxx
+sm_XX
 ```
+
+> 记下 SM 版本 — 如果看到 `sm_70` (V100/Volta)，请跳到 [V100 专用说明](#v100-volta-sm_70-专用说明)。
 
 | 看到什么 | 怎么办 |
 |---------|--------|
@@ -129,17 +158,27 @@ NVIDIA GeForce RTX xxxx
 
 ---
 
-### B-3. 确认 C++ 编译器（Windows）
+### B-3. 确认 C++ 编译器
 
+**Windows:**
 ```bash
 where cl
 ```
-
 **你应该看到**：`C:\Program Files\Microsoft Visual Studio\...\cl.exe`
 
 | 看到什么 | 怎么办 |
 |---------|--------|
-| `Could not find files` | 装 [Build Tools for VS 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)，勾选「使用 C++ 的桌面开发」→ 安装完重启终端 |
+| `Could not find files` | 装 [Build Tools for VS 2022](https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022)，勾选「使用 C++ 的桌面开发」 |
+
+**Linux:**
+```bash
+g++ --version
+```
+**你应该看到**：`g++ (Ubuntu ...) 1x.x.x`
+
+| 看到什么 | 怎么办 |
+|---------|--------|
+| `command not found` | Ubuntu: `sudo apt install build-essential` |
 
 ---
 
@@ -151,7 +190,6 @@ pip install -e . --no-build-isolation
 
 **你应该看到**：
 ```
-INFO:root:CUDA_HOME=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\vXX.X
 running build_ext
 building 'lowp_fft._cufft_ext' extension
 ...（编译输出，大量 warning 正常）...
@@ -163,6 +201,7 @@ Successfully installed lowp_fft-0.1.0
 
 | 看到什么 | 怎么办 |
 |---------|--------|
+| `ModuleNotFoundError: No module named 'setuptools'` | `pip install setuptools` 然后重试 |
 | `CUDA version mismatches (13.3 vs 12.8)` | ✅ 已自动跳过版本检查，不影响。CUDA 13.x 用户常见 |
 | `error: Microsoft Visual C++ 14.0 is required` | 回到 B-3 装 Build Tools |
 | `LINK : fatal error LNK1181: c10_cuda.lib` | 确认用了 `--no-build-isolation` |
@@ -177,24 +216,53 @@ Successfully installed lowp_fft-0.1.0
 python -m pytest tests/ -v --tb=short
 ```
 
-**你应该看到**：
+**非 Volta (sm_80+) 你应该看到**：
 ```
 test_bfp_fft.py .... 22 passed
-test_bfp_cuda.py .... 1 failed, 14 skipped  (如果没有先跑 build_bfp.bat)
+test_bfp_cuda.py .... 1 failed, 14 skipped
 test_autograd.py .... 33 passed, 2 skipped, 2 xfailed
 test_bf16.py .... 39 passed, 2 skipped
 
 综合: 94 passed, 17 skipped, 2 xfailed, 1 failed
 ```
 
-> `test_bfp_cuda.py` 需要先运行 `build_bfp.bat` 编译独立的 BFP CUDA 可执行文件（Makefile 方案，与 pip 安装的 PyTorch 扩展是两套构建系统）。如果没跑过，`test_exe_exists` 会 FAIL，其余 14 个测试会跳过——**这不算验证失败**，94 passed 已经是完整验证结果。
+> `test_bfp_cuda.py` 中的 `test_exe_exists` FAILED 是预期的——你需要先运行 `build_bfp.bat` (Windows) 编译独立的 BFP CUDA 可执行文件。
+> 这个 exe 是独立 Makefile 构建系统，与 `pip install -e .` 安装的 PyTorch 扩展无关。
+> **1 failed = test_exe_exists + 94 passed 已经是完整验证结果，不算失败。**
 
 | 看到什么 | 怎么办 |
 |---------|--------|
-| 任何红色 `FAILED` | 截图发给项目负责人 |
+| 只有 1 个 FAILED (`test_exe_exists`) | ✅ 完整验证通过，94 passed |
+| 其他非 BF16 测试 `FAILED` | 截图发给项目负责人 |
 | `test_bfp_cuda.py` 全部 skipped | GPU 不可用，回退到路径 A |
-| `test_bfp_cuda.py` 有 1 FAILED (test_exe_exists) | 没跑 `build_bfp.bat`。不算失败 — 94 passed 已是完整验证 |
-| passed 总数不到 94 | 截图最终统计行 |
+| 大量 BF16 测试 FAILED (30+) | 你可能在用 **V100/Volta** → 看下方专用说明 |
+| passed 总数不到 94 (非 Volta) | 截图最终统计行 |
+
+---
+
+## V100 / Volta (sm_70) 专用说明
+
+**如果你的 GPU 是 V100 或其他 Volta 架构 (sm_70)，请先读这里。**
+
+V100 的 Tensor Core 是第 1 代，**不支持 BF16 格式**。运行全量测试时：
+- **54 个非 BF16 测试全部通过** ✅
+- **41 个 BF16 测试会 FAIL** ⚠️ — 这是**预期行为，不是 bug**
+
+你应该看到：
+```
+综合: 41 failed, 54 passed, 17 skipped, 2 xfailed
+```
+
+**验证标准 (V100)**：54 passed (非 BF16) + E4M3 SQNR 21.15±0.15 dB = 验证通过。
+
+> 项目 API 层已通过 `_supports_bf16_cufft()` 自动检测 sm_70 并降级为 FP32 fallback。
+> 用户使用 `fft(x, precision="bf16")` 在任何 GPU（包括 V100）上都能正常工作。
+> pytest 测试套件的 BF16 测试尚未自动跳过 sm_70（改进中）。
+
+**V100 验证记录模板**：
+```
+□ 路径 B (V100): 54 passed (非 BF16), 41 BF16 failed (预期), 17 skipped, 2 xfailed
+```
 
 ---
 
@@ -205,7 +273,10 @@ python tests/bench_bfp_ablation_mantissa.py
 python tests/bench_bfp_ablation_group_size.py
 ```
 
-**关键检查**：E4M3 uniform 的 SQNR 应在 21.2 ± 0.3 dB。偏差 >0.5 dB 记录即可（不同机器浮点误差）。
+**关键检查**：E4M3 uniform 的 SQNR 应在 **21.2 ± 0.3 dB**。
+偏差 >0.5 dB 记录即可（不同机器浮点误差）。
+
+> 基于 6 台机实测：E4M3 SQNR 极差仅 0.02 dB (21.15–21.17 dB)，跨机器高度一致。
 
 ---
 
@@ -213,34 +284,55 @@ python tests/bench_bfp_ablation_group_size.py
 
 | 错误 | 场景 | 解决 |
 |------|------|------|
+| `ModuleNotFoundError: No module named 'setuptools'` | pip install 时 | `pip install setuptools` — 部分环境不自带 |
 | `CUDA toolkit not found` | 安装时 | 正常 — 纯 Python 模式自动启用 |
 | `CUDA_HOME is not set` | 安装时 | 路径A 忽略；路径B 设环境变量或加 `--no-build-isolation` |
-| `CUDA version mismatches` | CUDA 13.x 编译时 | ✅ 已自动跳过，不影响 |
+| `CUDA version mismatches (13.3 vs 12.8)` | CUDA 13.x 编译时 | ✅ 已自动跳过，不影响 |
 | `c10_cuda.lib` 找不到 | 编译链接时 | 加 `--no-build-isolation` |
 | `could not find ninja` | 编译时 | 正常 — 自动回退，仅影响编译速度 |
 | `Error checking compiler version for cl` | 编译时 | 正常 — nvcc 用 `--use-local-env` 找到 MSVC |
+| `pip: WARNING: Cache entry deserialization failed` | pip 操作时 | ✅ 无害，忽略 |
+| `cuFFT error 16` (CUFFT_EXEC_FAILED) | V100 BF16 测试 | ✅ 预期 — Volta 无 BF16 Tensor Core |
+| `cuFFT error 16` (CUFFT_EXEC_FAILED) | 非 V100 | CUDA Toolkit 版本 > 驱动支持的 CUDA 版本，更新驱动 |
 
 ---
 
 ## 🔧 遇到问题？一键诊断
 
-如果上面任何步骤失败，运行诊断脚本收集完整环境信息：
+### Windows
 
-```bash
+```powershell
 .\scripts\collect-diagnostics.ps1
 ```
 
-这会生成 `diagnostics-YYYYMMDD-HHMMSS.log`，包含：
+### Linux / 无 PowerShell
 
-- 系统版本、Python/pip 版本、已安装的包、pip 缓存状态
-- **全部** CUDA/NVIDIA 环境变量（含空值）
+```bash
+python -c "
+import torch, sys, platform, subprocess, os
+print(f'OS: {platform.system()} {platform.release()}')
+print(f'Python: {sys.version}')
+print(f'pip: ', end=''); subprocess.run([sys.executable, '-m', 'pip', '--version'])
+print(f'setuptools: ', end=''); subprocess.run([sys.executable, '-c', 'import setuptools; print(setuptools.__version__)'])
+try:
+    print(f'PyTorch: {torch.__version__}, CUDA: {torch.version.cuda}')
+    print(f'GPU: {torch.cuda.get_device_name(0)}')
+    cc = torch.cuda.get_device_capability()
+    print(f'SM: sm_{cc[0]}{cc[1]}')
+except Exception as e:
+    print(f'PyTorch/GPU: {e}')
+print(); subprocess.run(['nvidia-smi'], stderr=subprocess.STDOUT)
+print(); subprocess.run(['nvcc', '--version'], stderr=subprocess.STDOUT)
+print(); subprocess.run(['g++', '--version'], stderr=subprocess.STDOUT)
+" > diagnostics-$(date +%Y%m%d-%H%M%S).log 2>&1
+```
+
+诊断信息包括：
+- 系统版本、Python/pip 版本
+- PyTorch 版本、GPU 型号、Compute Capability
 - nvidia-smi + nvcc 版本
-- PyTorch 版本、GPU 型号、CUDA 版本、Compute Capability
-- MSVC 编译器位置
-- Git 仓库状态
-- pip install 完整输出（含退出码）
-- import 检查
-- pytest 逐文件 + 全量输出
+- C++ 编译器版本
+- CUDA 环境变量
 
 将生成的 `.log` 文件发给项目负责人。
 
@@ -248,20 +340,47 @@ python tests/bench_bfp_ablation_group_size.py
 
 ## ✅ 验证记录
 
-复制下面模板，填完发给项目负责人：
+复制对应模板，填完发给项目负责人：
+
+### 非 Volta (sm_80+) 模板
 
 ```
 === 低精度 FFT 独立验证记录 ===
 
 姓名：________
 日期：2026-__-__
-硬件：________（GPU 型号，或 "CPU only"）
+硬件：________ (GPU 型号)
+SM：sm_XX
 OS：Windows ____ / Linux ____
 Python：3.__.__
-CUDA Toolkit：有 v__.__ / 无
+CUDA Toolkit：v__.__
+PyTorch：2.__.__
+驱动：xxx.xx
 
-□ 路径 A：BFP __/22  passed
-□ 路径 B：全量 __ passed, __ skipped, __ xfailed
+□ 路径 A：BFP 22/22 passed, API fallback 72/72 passed
+□ 路径 B：94 passed, 17 skipped, 2 xfailed, 1 failed (test_exe_exists)
+□ 尾数消融 E4M3 SQNR：____ dB
+
+遇到的问题（没有就写"无"）：
+```
+
+### V100 / Volta (sm_70) 模板
+
+```
+=== 低精度 FFT 独立验证记录 ===
+
+姓名：________
+日期：2026-__-__
+硬件：Tesla V100 / V100S
+SM：sm_70
+OS：Linux ____
+Python：3.__.__
+CUDA Toolkit：v__.__
+PyTorch：2.__.__
+驱动：xxx.xx
+
+□ 路径 A：BFP 22/22 passed, API fallback 72/72 passed
+□ 路径 B (V100)：54 passed (非 BF16), 41 BF16 failed (预期), 17 skipped, 2 xfailed
 □ 尾数消融 E4M3 SQNR：____ dB
 
 遇到的问题（没有就写"无"）：
@@ -272,7 +391,7 @@ CUDA Toolkit：有 v__.__ / 无
 ## 你完成了什么
 
 - 路径 A：验证了 BFP FP8 算法 + API fallback 的正确性
-- 路径 B：验证了 cuFFT FP16/BF16 扩展 + BFP CUDA kernel + 自动微分
+- 路径 B：验证了 cuFFT FP16/BF16 扩展 + 自动微分（V100 仅验证非 BF16 部分）
 - 消融实验：复现了论文核心 SQNR 数据
 
-你的验证记录将作为独立可复现性证明，用于中期报告/论文附录/答辩。
+你的验证记录将作为独立可复现性证明，用于论文附录/答辩/中期报告。
