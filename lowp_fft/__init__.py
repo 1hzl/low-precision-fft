@@ -226,6 +226,14 @@ def fft(
 ) -> torch.Tensor:
     """1D FFT with optional low-precision execution.
 
+    Precision modes:
+        - ``"fp32"`` (default): Standard torch.fft.fft in complex64.
+        - ``"fp16"``: cuFFT Xt API via CUDA C++ extension (complex32).
+        - ``"bf16"``: cuFFT BF16 via CUDA C++ extension (bfloat16 pair).
+          Requires Ampere+ (sm_80+). Volta falls back to FP32 compute.
+        - ``"fp8"``: Custom Block Floating-Point (BFP) FFT via Python
+          prototype. Per-stage shared exponent, ~21 dB SQNR.
+
     Args:
         input: Input tensor (real or complex).
         n: FFT size (pads/truncates if != input size along dim).
