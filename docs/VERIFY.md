@@ -2,29 +2,47 @@
 
 按照本指南操作，5-10 分钟即可完成低精度 FFT 项目的独立验证。
 
-> **v2.0 更新**：基于 6 台独立机器（sm_70/86/89/120，Windows+Linux）的验证经验，新增 Linux 专用指令、
-> V100/Volta 预期行为说明、setuptools 前置依赖、Python 诊断脚本等。
+> **v3.0 更新**：基于 7 台独立机器 8 位验证者的踩坑经验，新增验证前检查清单、版本兼容性矩阵、
+> 验证日志正确采集方法、Linux build_bfp 说明、更精确的预期输出（区分 Volta/非Volta/Linux）。
 
 ---
 
-## 环境速查
+## 验证前检查清单
 
-开始前确认：
+开始前，确认下面 4 项全部通过：
 
-**所有平台：**
 ```bash
-python --version        # 需要 ≥ 3.10
-git --version           # 任意版本
-pip install setuptools  # 必须！缺少会导致 pip install -e . 失败
+# 1. Python ≥ 3.10（实测通过 3.12.3 / 3.12.9 / 3.14.4 / 3.14.5）
+python --version
+
+# 2. Git（任意版本）
+git --version
+
+# 3. setuptools（必须！缺少会导致 pip install -e . 失败）
+pip install setuptools
+
+# 4. pytest + numpy（测试所需）
+pip install pytest numpy
 ```
 
 **Linux 额外检查：**
 ```bash
-g++ --version           # CUDA 编译需要 C++ 编译器
+g++ --version              # CUDA 编译需要 C++ 编译器
 which nvcc 2>/dev/null || echo "需要安装 CUDA Toolkit"
 ```
 
-没有就去装：[Python](https://www.python.org/downloads/)（勾选 Add to PATH）、[Git](https://git-scm.com/download/win)（一路 Next）。
+没有就去装：[Python](https://www.python.org/downloads/)、[Git](https://git-scm.com/download/win)。
+
+### 实测版本兼容性矩阵
+
+| Python | PyTorch | CUDA Toolkit | 驱动 | OS | 实测结果 |
+|--------|---------|-------------|------|----|----------|
+| 3.12.3 | 2.8.0+cu128 | 12.8 | 580.x | Linux | ✅ 通过 |
+| 3.12.9 | — | 13.3 | 610.47 | Win 11 | ✅ 通过 |
+| 3.14.4 | 2.11.0+cu128 | 13.3 | 580.97 | Win 11 | ✅ 通过 |
+| 3.14.5 | 2.8.x | 13.3.33 | 610.47 | Win 11 | ✅ 通过 |
+
+> 如果你的版本不在表中，通常也能通过。遇到问题参考下方常见问题速查。
 
 ---
 
@@ -223,20 +241,22 @@ test_bfp_cuda.py .... 1 failed, 14 skipped
 test_autograd.py .... 33 passed, 2 skipped, 2 xfailed
 test_bf16.py .... 39 passed, 2 skipped
 
-综合: 94 passed, 17 skipped, 2 xfailed, 1 failed
+综合: 1 failed, 94 passed, 17 skipped, 2 xfailed
 ```
 
-> `test_bfp_cuda.py` 中的 `test_exe_exists` FAILED 是预期的——你需要先运行 `build_bfp.bat` (Windows) 编译独立的 BFP CUDA 可执行文件。
-> 这个 exe 是独立 Makefile 构建系统，与 `pip install -e .` 安装的 PyTorch 扩展无关。
-> **1 failed = test_exe_exists + 94 passed 已经是完整验证结果，不算失败。**
+> 🔑 **1 failed = test_exe_exists**，原因是 BFP CUDA 独立 exe 未编译。
+> 这个 exe 走独立 Makefile 构建（与 `pip install -e .` 安装的 PyTorch 扩展无关）。
+> **94 passed 已经是完整验证结果，不算失败。**
+>
+> **Linux 用户注意**：`build_bfp.bat` 是 Windows 批处理文件，Linux 下 test_exe_exists FAILED 同样是预期行为。
 
 | 看到什么 | 怎么办 |
 |---------|--------|
 | 只有 1 个 FAILED (`test_exe_exists`) | ✅ 完整验证通过，94 passed |
 | 其他非 BF16 测试 `FAILED` | 截图发给项目负责人 |
-| `test_bfp_cuda.py` 全部 skipped | GPU 不可用，回退到路径 A |
-| 大量 BF16 测试 FAILED (30+) | 你可能在用 **V100/Volta** → 看下方专用说明 |
-| passed 总数不到 94 (非 Volta) | 截图最终统计行 |
+| 大量 BF16 测试 FAILED (30+) | 可能用 **V100/Volta** → 看下方专用说明 |
+| passed 不到 94 (非 Volta) | 截图最终统计行 |
+| `ModuleNotFoundError` | 回到检查清单确认 setuptools/pytest 已安装 |
 
 ---
 
@@ -282,18 +302,21 @@ python tests/bench_bfp_ablation_group_size.py
 
 ## 常见问题速查
 
-| 错误 | 场景 | 解决 |
-|------|------|------|
-| `ModuleNotFoundError: No module named 'setuptools'` | pip install 时 | `pip install setuptools` — 部分环境不自带 |
-| `CUDA toolkit not found` | 安装时 | 正常 — 纯 Python 模式自动启用 |
-| `CUDA_HOME is not set` | 安装时 | 路径A 忽略；路径B 设环境变量或加 `--no-build-isolation` |
-| `CUDA version mismatches (13.3 vs 12.8)` | CUDA 13.x 编译时 | ✅ 已自动跳过，不影响 |
-| `c10_cuda.lib` 找不到 | 编译链接时 | 加 `--no-build-isolation` |
-| `could not find ninja` | 编译时 | 正常 — 自动回退，仅影响编译速度 |
-| `Error checking compiler version for cl` | 编译时 | 正常 — nvcc 用 `--use-local-env` 找到 MSVC |
-| `pip: WARNING: Cache entry deserialization failed` | pip 操作时 | ✅ 无害，忽略 |
-| `cuFFT error 16` (CUFFT_EXEC_FAILED) | V100 BF16 测试 | ✅ 预期 — Volta 无 BF16 Tensor Core |
-| `cuFFT error 16` (CUFFT_EXEC_FAILED) | 非 V100 | CUDA Toolkit 版本 > 驱动支持的 CUDA 版本，更新驱动 |
+| 错误 | 场景 | 原因 | 解决 |
+|------|------|------|------|
+| `ModuleNotFoundError: No module named 'setuptools'` | pip install 时 | 部分 Python 环境不自带 setuptools | `pip install setuptools` 然后重试 |
+| `ModuleNotFoundError: No module named 'torch'` | import 时 | 未安装 PyTorch | `pip install torch --index-url https://download.pytorch.org/whl/cu128` |
+| `CUDA toolkit not found` | 安装时 | 无 CUDA 环境 | 正常 — 自动启用纯 Python 模式 |
+| `CUDA_HOME is not set` | 安装时 | 环境变量缺失 | 路径A 忽略；路径B 加 `--no-build-isolation` |
+| `CUDA version mismatches (13.3 vs 12.8)` | CUDA 13.x 编译时 | nvcc 版本 > 驱动 CUDA 版本 | ✅ 已自动跳过，不影响 |
+| `c10_cuda.lib` 找不到 | 编译链接时 | pip 隔离环境缺少 CUDA 库 | 加 `--no-build-isolation` |
+| `could not find ninja` | 编译时 | ninja 未安装 | 正常 — 自动回退 setuptools，仅影响速度 |
+| `Error checking compiler version for cl` | 编译时 | nvcc 与 MSVC 版本交互 | 正常 — nvcc 用 `--use-local-env` 找到 MSVC |
+| `pip: WARNING: Cache entry deserialization failed` | pip 操作时 | pip 缓存损坏 | ✅ 无害，忽略 |
+| `cuFFT error 16` (CUFFT_EXEC_FAILED) | V100 BF16 测试 | Volta 无 BF16 Tensor Core | ✅ 预期行为，见 V100 专用说明 |
+| `cuFFT error 16` (CUFFT_EXEC_FAILED) | 非 V100 | CUDA Toolkit > 驱动支持版本 | 更新显卡驱动到最新 |
+| `BackendUnavailable: No module named 'setuptools'` | pip install 时 | setuptools 缺失 | `pip install setuptools` 然后重试 |
+| pytest 显示 `ImportError` | 跑测试时 | 安装不完整或目录错误 | 确认在 `low-precision-fft` 目录内，重新 `pip install -e .` |
 
 ---
 
