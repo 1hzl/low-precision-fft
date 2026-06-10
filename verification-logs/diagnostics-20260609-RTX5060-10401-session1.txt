@@ -1,0 +1,167 @@
+﻿=== low-precision-fft diagnostics ===
+Timestamp: 2026-06-09 21:25:17 +08:00
+LogFile: C:\Users\10401\low-precision-fft\diagnostics-20260609-212517.log
+
+=== [System] ===
+OS: Microsoft Windows 11 家庭版 中文版
+Arch: AMD64
+Computer: PAOMOBENMO
+  -> exit code: 
+
+=== [Python] ===
+Python 3.11.9
+Location: C:\Users\10401\AppData\Local\Microsoft\WindowsApps\python.exe
+
+=== [pip] ===
+pip 26.1.2 from C:\Users\10401\AppData\Local\Packages\PythonSoftwareFoundation.Python.3.11_qbz5n2kfra8p0\LocalCache\local-packages\Python311\site-packages\pip (python 3.11)
+
+
+=== [pip-list] ===
+Package                 Version
+----------------------- ------------------------
+asttokens               3.0.0
+colorama                0.4.6
+comm                    0.2.3
+debugpy                 1.8.16
+decorator               5.2.1
+executing               2.2.0
+filelock                3.29.0
+fsspec                  2026.4.0
+iniconfig               2.3.0
+ipykernel               6.30.1
+ipython                 9.4.0
+ipython_pygments_lexers 1.1.1
+jedi                    0.19.2
+Jinja2                  3.1.6
+jupyter_client          8.6.3
+jupyter_core            5.8.1
+keyboard                0.13.5
+MarkupSafe              3.0.3
+matplotlib-inline       0.1.7
+MouseInfo               0.1.3
+mpmath                  1.3.0
+nest-asyncio            1.6.0
+networkx                3.6.1
+numpy                   2.3.2
+opencv-python           4.13.0.92
+packaging               25.0
+parso                   0.8.5
+pillow                  12.1.1
+pip                     26.1.2
+platformdirs            4.3.8
+pluggy                  1.6.0
+prompt_toolkit          3.0.51
+psutil                  7.0.0
+pure_eval               0.2.3
+PyAutoGUI               0.9.54
+PyGetWindow             0.0.9
+Pygments                2.19.2
+PyMsgBox                2.0.1
+pyperclip               1.11.0
+PyQt5                   5.15.11
+PyQt5-Qt5               5.15.2
+PyQt5_sip               12.18.0
+PyRect                  0.2.0
+PyScreeze               1.0.1
+pytest                  9.0.3
+python-dateutil         2.9.0.post0
+pytweening              1.2.0
+pywin32                 311
+pyzmq                   27.0.2
+setuptools              82.0.1
+six                     1.17.0
+stack-data              0.6.3
+sympy                   1.14.0
+torch                   2.13.0.dev20260603+cu130
+torchaudio              2.11.0.dev20260606+cu130
+torchvision             0.28.0.dev20260606+cu130
+tornado                 6.5.2
+traitlets               5.14.3
+typing_extensions       4.15.0
+wcwidth                 0.2.13
+wheel                   0.47.0
+
+=== [pip-cache] ===
+Package index page cache location (pip v23.3+): c:\users\10401\appdata\local\pip\cache\http-v2
+Package index page cache location (older pips): c:\users\10401\appdata\local\pip\cache\http
+Package index page cache size: 7189.9 MB
+Number of HTTP files: 525
+Locally built wheels location: c:\users\10401\appdata\local\pip\cache\wheels
+Locally built wheels size: 4.5 MB
+Number of locally built wheels: 11
+
+=== [CUDA-env-vars] ===
+CUDA_HOME = [C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3]
+CUDA_PATH = [C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3]
+CUDA_VISIBLE_DEVICES = []
+CUDA_HOME = [C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3]
+CUDA_PATH = [C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3]
+CUDA_PATH_V13_3 = [C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.3]
+
+=== [nvidia-smi] ===
+Tue Jun  9 21:25:24 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 610.47                 KMD Version: 610.47        CUDA UMD Version: 13.3     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                  Driver-Model | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5060 ...  WDDM  |   00000000:01:00.0 Off |                  N/A |
+| N/A   51C    P8              3W /  115W |       5MiB /   8151MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            5924    C+G   ...s (x86)\Overwolf\Overwolf.exe      N/A      |
++-----------------------------------------------------------------------------------------+
+
+=== [nvcc] ===
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2026 NVIDIA Corporation
+Built on Fri_Apr_24_19:26:09_Pacific_Daylight_Time_2026
+Cuda compilation tools, release 13.3, V13.3.33
+Build cuda_13.3.r13.3/compiler.37862127_0
+
+=== [cuda-version-check] ===
+NVIDIA Driver: 610.47
+nvcc: Cuda compilation tools, release 13.3, V13.3.33
+
+=== [torch-info] ===
+
+=== [msvc-cl] ===
+Get-Command : 无法将“cl”项识别为 cmdlet、函数、脚本文件或可运行程序的名称。请检查名称的拼写，如果包括路径，请确保路径正确，然后再试一次。
+所在位置 行:2 字符: 1
++ Get-Command cl 2>&1
++ ~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : ObjectNotFound: (cl:String) [Get-Command], CommandNotFoundException
+    + FullyQualifiedErrorId : CommandNotFoundException,Microsoft.PowerShell.Commands.GetCommandCommand
+ 
+
+=== [msvc-vcvars] ===
+C:\Program Files\Microsoft Visual Studio\2022\Community
+
+=== [git-info] ===
+git version 2.53.0.windows.1
+origin	https://github.com/1hzl/low-precision-fft.git (fetch)
+origin	https://github.com/1hzl/low-precision-fft.git (push)
+c79fbae docs: add verification report 鈥?2/2 machines passed
+e15c474 fix: add CUDA driver/toolkit version mismatch check (cuFFT error 16)
+0325b7a docs: update VERIFY.md 鈥?accurate test counts for BFP CUDA standalone exe
+3a3dce3 n2920: pull-check 2026-06-08T16:32:01+08:00
+495593a feat: add one-click diagnostic script + integrate into VERIFY.md
+
+=== [git-status] ===
+ D lowp_fft.egg-info/PKG-INFO
+ D lowp_fft.egg-info/SOURCES.txt
+ D lowp_fft.egg-info/dependency_links.txt
+ D lowp_fft.egg-info/not-zip-safe
+ D lowp_fft.egg-info/requires.txt
+ D lowp_fft.egg-info/top_level.txt
+?? diagnostics-20260609-212517.log
+
+=== [pip-install] ===
