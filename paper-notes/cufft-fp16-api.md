@@ -1,6 +1,6 @@
 # cuFFT FP16 API 研读笔记
 
-> 日期: 2026-06-02 | 来源: NVIDIA cuFFT 13.3 文档 + PyTorch PR #180766
+> 日期: 2026年5月 | 来源: NVIDIA cuFFT 13.3 文档 + PyTorch PR #180766
 
 ## 一、cuFFT 低精度支持概况
 

@@ -1,6 +1,6 @@
 # review: low-precision-fft Phase 2
 
-- **时间**: 2026-06-04 11:00 CST
+- **时间**: 2026年5月下旬 CST
 - **结果**: 有条件通过
 - **审查者**: OpenClaw (N2920)
 - **范围**: Sprint 2.1–2.4 + 优化（全部 Phase 2 产出）

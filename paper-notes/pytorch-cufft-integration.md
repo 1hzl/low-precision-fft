@@ -1,6 +1,6 @@
 # PyTorch FFT 源码研读 + 集成方案
 
-> 日期: 2026-06-02 | 来源: PyTorch main branch
+> 日期: 2026年5月 | 来源: PyTorch main branch
 
 ## 一、PyTorch cuFFT 集成架构
 
